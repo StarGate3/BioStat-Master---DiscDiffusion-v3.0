@@ -1,0 +1,11 @@
+customtkinter
+matplotlib
+numpy
+openpyxl
+pandas
+reportlab
+scikit-learn
+scikit-posthocs
+scipy
+seaborn
+statsmodels
