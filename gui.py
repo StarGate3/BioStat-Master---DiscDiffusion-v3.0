@@ -456,20 +456,12 @@ Error bars represent standard deviation. This overview highlights the differenti
                     self.log(f"{d['Group 1']} vs {d['Group 2']} | p={d['P-adj']:.4f} | d={metrics_d:.2f}")
 
         # 5. RYSOWANIE (Delegacja)
-        # 5. RYSOWANIE (Delegacja)
         self.display_plot(lambda: self.plotter.draw_bar_plot(df_run, bact, ref_group, sig_set), self.tab_plot, 'bar')
         self.display_plot(lambda: self.plotter.draw_heatmap(df_run, bact), self.tab_heatmap, 'heat')
         self.display_plot(lambda: self.plotter.draw_pvalue_heatmap(self.export_stats_posthoc, bact), self.tab_pvalue, 'pvalue')
         
         # MIC ESTIMATION
-        mic_results = self.stats_engine.estimate_mic(df_run, wybrane) # wybrane -> trzeba przekazac nazwy substancji, a nie grupy?
-        # estimate_mic oczekuje selected_substances, ale w logice wyciągamy substancje z nazw grup. 
-        # Przekażemy unikalne substancje z nazw grup.
-        
-        # W logic.py estimate_mic(df, selected_substances)
-        # selected_substances to lista stringow (np. ['Amikacyna', 'Gentamycyna'])
-        # A 'wybrane' to lista ['Amikacyna 10ug', 'Gentamycyna 5ug']
-        # Musimy wyciągnąć unikalne nazwy
+        mic_results = self.stats_engine.estimate_mic(df_run, wybrane)
         
         unique_subs = set()
         for g in wybrane:
@@ -597,4 +589,5 @@ Error bars represent standard deviation. This overview highlights the differenti
             messagebox.showinfo("Sukces", msg)
         else:
             messagebox.showerror("Błąd PDF", msg)
+
 
