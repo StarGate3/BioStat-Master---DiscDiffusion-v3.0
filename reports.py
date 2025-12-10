@@ -21,7 +21,7 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
     try:
         doc = SimpleDocTemplate(file_path, pagesize=A4)
         
-        # Konfiguracja czcionek (obsługa polskich znaków jeśli masz arial.ttf, wpp Helvetica)
+        # Konfiguracja czcionek
         try:
             pdfmetrics.registerFont(TTFont('Arial', 'arial.ttf'))
             pdfmetrics.registerFont(TTFont('Arial-Bold', 'arialbd.ttf'))
@@ -136,4 +136,5 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
         return True, "Raport PDF został wygenerowany!"
         
     except Exception as e:
+
         return False, str(e)
