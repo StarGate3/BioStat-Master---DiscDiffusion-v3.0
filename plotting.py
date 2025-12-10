@@ -18,10 +18,7 @@ class Plotter:
 
     def draw_bar_plot(self, df, bact, ref, sig_set):
         plt.close('all') 
-        is_horiz = False # Orientacja sterowana z zewnątrz, ale tutaj uprościmy
-        # W oryginale is_horiz było czytane z self.seg_orient.get()
-        # Musimy to przenieść do configu lub argumentu.
-        # Dodamy 'orientation' do configu.
+        is_horiz = False 
         
         is_horiz = (self.config.get("orientation", "Pozioma") == "Pozioma")
 
@@ -368,3 +365,4 @@ class Plotter:
         
         fig.tight_layout()
         return fig
+
