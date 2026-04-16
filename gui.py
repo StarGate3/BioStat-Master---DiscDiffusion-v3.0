@@ -1,3 +1,4 @@
+import os
 import customtkinter as ctk
 import tkinter as tk
 from tkinter import filedialog, messagebox
@@ -174,7 +175,7 @@ class App(ctk.CTk):
                 for col in self.df.select_dtypes(['object']).columns:
                     self.df[col] = self.df[col].str.strip()
                 
-                self.lbl_file.configure(text=path.split("/")[-1], text_color="white")
+                self.lbl_file.configure(text=os.path.basename(path), text_color="white")
                 col = next((c for c in self.df.columns if 'Bakteri' in c), None)
                 if col:
                     self.col_bact_name = col
@@ -462,8 +463,6 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.display_plot(lambda: self.plotter.draw_pvalue_heatmap(self.export_stats_posthoc, bact), self.tab_pvalue, 'pvalue')
         
         # MIC ESTIMATION
-        mic_results = self.stats_engine.estimate_mic(df_run, wybrane)
-        
         unique_subs = set()
         for g in wybrane:
             s, _, _ = utils.parse_concentration(g)
