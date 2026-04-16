@@ -17,9 +17,6 @@ class Plotter:
         self.config = new_config
 
     def draw_bar_plot(self, df, bact, ref, sig_set):
-        plt.close('all') 
-        is_horiz = False 
-        
         is_horiz = (self.config.get("orientation", "Pozioma") == "Pozioma")
 
         order = sorted(df['Grupa'].unique(), key=utils.smart_sort_key)
