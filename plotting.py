@@ -208,12 +208,11 @@ class Plotter:
         for sub in df_trend['Substancja'].unique():
             sub_df = df_trend[df_trend['Substancja'] == sub]
             if len(sub_df) > 2:
-                means = sub_df.groupby("Stężenie")["Średnica"].mean().reset_index()
-                if np.std(means["Stężenie"]) > 0 and np.std(means["Średnica"]) > 0:
+                if np.std(sub_df["Stężenie"]) > 0 and np.std(sub_df["Średnica"]) > 0:
                     try:
-                        r, p = stats.spearmanr(means["Stężenie"], means["Średnica"])
+                        r, p = stats.spearmanr(sub_df["Stężenie"], sub_df["Średnica"])
                         correlations.append(f"{sub}: r={r:.2f} (p={p:.3f})")
-                    except Exception as e: 
+                    except Exception as e:
                         correlations.append(f"{sub}: błąd ({str(e)})")
                 else: correlations.append(f"{sub}: brak zmienności")
         
