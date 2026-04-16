@@ -74,7 +74,29 @@ def find_outliers_dixon(df):
         
         if q_calc_low > q_crit: 
             detected.append({'group': group, 'value': values[0], 'others': str(values[1:])})
-        if q_calc_high > q_crit: 
+        if q_calc_high > q_crit:
             detected.append({'group': group, 'value': values[-1], 'others': str(values[:-1])})
-            
+
     return detected
+
+# --- WALIDACJA STRUKTURY PLIKU EXCEL ---
+def validate_excel_structure(df):
+    """
+    Strukturalna walidacja wczytanego DataFrame (bez sprawdzania typów / wartości).
+    Zwraca (is_valid, error_messages) — error_messages to lista polskich komunikatów.
+    """
+    errors = []
+
+    if not any('Bakteri' in c for c in df.columns):
+        errors.append("Brak wymaganej kolumny z nazwą bakterii (kolumny zawierającej w nazwie 'Bakteri').")
+
+    if 'Grupa' not in df.columns:
+        errors.append("Brak wymaganej kolumny 'Grupa'.")
+
+    if 'Srednica_mm' not in df.columns:
+        errors.append("Brak wymaganej kolumny 'Srednica_mm'.")
+
+    if len(df) == 0:
+        errors.append("Plik nie zawiera żadnych wierszy danych.")
+
+    return (len(errors) == 0, errors)

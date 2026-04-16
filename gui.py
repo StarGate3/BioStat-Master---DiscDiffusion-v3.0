@@ -168,24 +168,48 @@ class App(ctk.CTk):
 
     def load_file(self):
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
-        if path:
-            try:
-                self.df = pd.read_excel(path)
-                self.df.columns = self.df.columns.str.strip()
-                for col in self.df.select_dtypes(['object']).columns:
-                    self.df[col] = self.df[col].str.strip()
-                
-                self.lbl_file.configure(text=os.path.basename(path), text_color="white")
-                col = next((c for c in self.df.columns if 'Bakteri' in c), None)
-                if col:
-                    self.col_bact_name = col
-                    bacts = list(self.df[col].unique())
-                    self.combo_bact.configure(values=bacts)
-                    self.combo_bact.set(bacts[0])
-                    self.on_bacteria_change(bacts[0])
-                    self.log(f"Wczytano plik. Znaleziono szczepy: {bacts}")
-                else: messagebox.showerror("Błąd", "Brak kolumny 'Bakterie'.")
-            except Exception as e: messagebox.showerror("Błąd", f"Nie udało się wczytać: {e}")
+        if not path:
+            return
+
+        try:
+            df = pd.read_excel(path)
+        except FileNotFoundError:
+            messagebox.showerror("Błąd", "Plik nie istnieje lub został usunięty.")
+            return
+        except PermissionError:
+            messagebox.showerror("Błąd", "Nie można otworzyć pliku. Sprawdź, czy nie jest otwarty w Excelu.")
+            return
+        except ValueError:
+            messagebox.showerror("Błąd", "Nieobsługiwany format pliku. Wymagany: .xlsx lub .xls.")
+            return
+        except Exception as e:
+            messagebox.showerror("Błąd", f"Nie udało się wczytać pliku: {e}")
+            return
+
+        df.columns = df.columns.str.strip()
+
+        is_valid, errors = utils.validate_excel_structure(df)
+        if not is_valid:
+            body = "Plik nie może zostać wczytany z powodu następujących problemów:\n\n" + "\n".join(errors)
+            messagebox.showerror("Błąd walidacji pliku", body)
+            return
+
+        try:
+            for col in df.select_dtypes(['object']).columns:
+                df[col] = df[col].str.strip()
+
+            self.df = df
+            self.lbl_file.configure(text=os.path.basename(path), text_color="white")
+            col = next((c for c in self.df.columns if 'Bakteri' in c), None)
+            if col:
+                self.col_bact_name = col
+                bacts = list(self.df[col].unique())
+                self.combo_bact.configure(values=bacts)
+                self.combo_bact.set(bacts[0])
+                self.on_bacteria_change(bacts[0])
+                self.log(f"Wczytano plik. Znaleziono szczepy: {bacts}")
+            else: messagebox.showerror("Błąd", "Brak kolumny 'Bakterie'.")
+        except Exception as e: messagebox.showerror("Błąd", f"Nie udało się wczytać: {e}")
 
     def on_bacteria_change(self, selected_bact):
         if self.df is None: return
