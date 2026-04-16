@@ -2,6 +2,12 @@ import re
 import numpy as np
 import pandas as pd
 from scipy import stats
+from config import (
+    COL_GROUP, COL_MEASUREMENT, COL_BACT_SUBSTRING,
+    COHENS_D_SMALL, COHENS_D_MEDIUM, COHENS_D_LARGE,
+    DIXON_Q90_CRITICAL,
+    CONCENTRATION_SEARCH_PATTERN, CONCENTRATION_STRIP_PATTERN,
+)
 
 # --- SORTOWANIE I PARSOWANIE ---
 def smart_sort_key(group_name):
@@ -17,13 +23,13 @@ def smart_sort_key(group_name):
 
 def parse_concentration(group_name):
     """Wyciąganie stężenia i jednostki z nazwy grupy."""
-    match = re.search(r"([\d,.]+)\s*(mg\/ml|ug\/ml|%)", group_name)
+    match = re.search(CONCENTRATION_SEARCH_PATTERN, group_name)
     if match:
         val_str = match.group(1).replace(',', '.')
         try:
             conc = float(val_str)
             unit = match.group(2)
-            substance = re.sub(r"\s*\(?[\d,.]+\s*(mg\/ml|ug\/ml|%).*\)?", "", group_name).strip()
+            substance = re.sub(CONCENTRATION_STRIP_PATTERN, "", group_name).strip()
             return substance, conc, unit
         except ValueError: return None, None, None
     return None, None, None
@@ -48,30 +54,29 @@ def calculate_cohens_d(group1_data, group2_data):
 
 def get_effect_size_interpretation(d):
     d = abs(d)
-    if d < 0.2: return "znikomy"
-    elif d < 0.5: return "mały"
-    elif d < 0.8: return "średni"
+    if d < COHENS_D_SMALL: return "znikomy"
+    elif d < COHENS_D_MEDIUM: return "mały"
+    elif d < COHENS_D_LARGE: return "średni"
     else: return "DUŻY"
 
 # --- STATYSTYKA: OUTLIERS (DIXON LOGIC) ---
 def find_outliers_dixon(df):
     """Zwraca listę wykrytych outlierów (logika bez GUI)."""
-    dixon_q90 = {3: 0.941, 4: 0.765, 5: 0.642, 6: 0.560, 7: 0.507, 8: 0.468, 9: 0.437, 10: 0.412}
     detected = []
-    
-    for group in df['Grupa'].unique():
-        values = df[df['Grupa'] == group]['Srednica_mm'].values
+
+    for group in df[COL_GROUP].unique():
+        values = df[df[COL_GROUP] == group][COL_MEASUREMENT].values
         values = sorted(values)
         n = len(values)
-        if n < 3 or n > 10: continue 
+        if n < 3 or n > 10: continue
         r = values[-1] - values[0]
         if r == 0: continue
-        
+
         gap_low = values[1] - values[0]
         q_calc_low = gap_low / r
         gap_high = values[-1] - values[-2]
         q_calc_high = gap_high / r
-        q_crit = dixon_q90.get(n, 0.941)
+        q_crit = DIXON_Q90_CRITICAL.get(n, 0.941)
         
         if q_calc_low > q_crit: 
             detected.append({'group': group, 'value': values[0], 'others': str(values[1:])})
@@ -88,14 +93,14 @@ def validate_excel_structure(df):
     """
     errors = []
 
-    if not any('Bakteri' in c for c in df.columns):
-        errors.append("Brak wymaganej kolumny z nazwą bakterii (kolumny zawierającej w nazwie 'Bakteri').")
+    if not any(COL_BACT_SUBSTRING in c for c in df.columns):
+        errors.append(f"Brak wymaganej kolumny z nazwą bakterii (kolumny zawierającej w nazwie {COL_BACT_SUBSTRING!r}).")
 
-    if 'Grupa' not in df.columns:
-        errors.append("Brak wymaganej kolumny 'Grupa'.")
+    if COL_GROUP not in df.columns:
+        errors.append(f"Brak wymaganej kolumny {COL_GROUP!r}.")
 
-    if 'Srednica_mm' not in df.columns:
-        errors.append("Brak wymaganej kolumny 'Srednica_mm'.")
+    if COL_MEASUREMENT not in df.columns:
+        errors.append(f"Brak wymaganej kolumny {COL_MEASUREMENT!r}.")
 
     if len(df) == 0:
         errors.append("Plik nie zawiera żadnych wierszy danych.")
@@ -117,25 +122,25 @@ def validate_excel_data(df, bacteria_col):
         excel_row = idx + 2
         reason = None
 
-        val = df.at[idx, 'Srednica_mm']
+        val = df.at[idx, COL_MEASUREMENT]
         if pd.isna(val):
-            reason = "Brak wartości w kolumnie 'Srednica_mm'."
+            reason = f"Brak wartości w kolumnie {COL_MEASUREMENT!r}."
         else:
             try:
                 fval = float(val)
                 if not np.isfinite(fval):
-                    reason = f"Nieprawidłowa wartość 'Srednica_mm' ({val!r}) — wartość nieskończona."
-                elif fval <= 0:
-                    reason = f"Nieprawidłowa wartość 'Srednica_mm' ({val!r}) — musi być większa niż 0."
+                    reason = f"Nieprawidłowa wartość {COL_MEASUREMENT!r} ({val!r}) — wartość nieskończona."
+                elif fval < 0:
+                    reason = f"Nieprawidłowa wartość {COL_MEASUREMENT!r} ({val!r}) — nie może być wartością ujemną (0 oznacza brak strefy zahamowania i jest dopuszczalne)."
                 elif fval > 100:
-                    reason = f"Podejrzana wartość 'Srednica_mm' ({val!r}) — większa niż 100 mm (prawdopodobny błąd pomiaru)."
+                    reason = f"Podejrzana wartość {COL_MEASUREMENT!r} ({val!r}) — większa niż 100 mm (prawdopodobny błąd pomiaru)."
             except (ValueError, TypeError):
-                reason = f"Nieprawidłowa wartość 'Srednica_mm' ({val!r}) — nie można przekształcić na liczbę."
+                reason = f"Nieprawidłowa wartość {COL_MEASUREMENT!r} ({val!r}) — nie można przekształcić na liczbę."
 
         if reason is None:
-            grp = df.at[idx, 'Grupa']
+            grp = df.at[idx, COL_GROUP]
             if pd.isna(grp) or (isinstance(grp, str) and grp.strip() == ""):
-                reason = "Pusta wartość w kolumnie 'Grupa'."
+                reason = f"Pusta wartość w kolumnie {COL_GROUP!r}."
 
         if reason is None:
             bact_val = df.at[idx, bacteria_col]

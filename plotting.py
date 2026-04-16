@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 import utils
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, SCREEN_DPI
 
 class Plotter:
     def __init__(self, config):
@@ -19,7 +20,7 @@ class Plotter:
     def draw_bar_plot(self, df, bact, ref, sig_set):
         is_horiz = (self.config.get("orientation", "Pozioma") == "Pozioma")
 
-        order = sorted(df['Grupa'].unique(), key=utils.smart_sort_key)
+        order = sorted(df[COL_GROUP].unique(), key=utils.smart_sort_key)
         if ref in order:
             order.remove(ref)
             order.insert(0, ref)
@@ -42,21 +43,21 @@ class Plotter:
         h = max(6, len(order)*0.4) if is_horiz else 6
         w = 8 if is_horiz else max(8, len(order)*0.3)
         
-        fig = plt.Figure(figsize=(w, h), dpi=100)
+        fig = plt.Figure(figsize=(w, h), dpi=SCREEN_DPI)
         ax = fig.add_subplot(111)
         
-        means = df.groupby('Grupa')['Srednica_mm'].mean()
-        sds = df.groupby('Grupa')['Srednica_mm'].std().fillna(0)
-        sems = df.groupby('Grupa')['Srednica_mm'].sem().fillna(0)
-        maxs = df.groupby('Grupa')['Srednica_mm'].max()
+        means = df.groupby(COL_GROUP)[COL_MEASUREMENT].mean()
+        sds = df.groupby(COL_GROUP)[COL_MEASUREMENT].std().fillna(0)
+        sems = df.groupby(COL_GROUP)[COL_MEASUREMENT].sem().fillna(0)
+        maxs = df.groupby(COL_GROUP)[COL_MEASUREMENT].max()
         
         if "Barplot" in plot_type:
             if is_horiz:
-                sns.barplot(x='Srednica_mm', y='Grupa', data=df, order=order, ax=ax, capsize=0.2, errorbar=sb_error, palette=pal, orient='h', edgecolor='black', hue='Grupa', legend=False)
-                if show_points: sns.stripplot(x='Srednica_mm', y='Grupa', data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
+                sns.barplot(x=COL_MEASUREMENT, y=COL_GROUP, data=df, order=order, ax=ax, capsize=0.2, errorbar=sb_error, palette=pal, orient='h', edgecolor='black', hue=COL_GROUP, legend=False)
+                if show_points: sns.stripplot(x=COL_MEASUREMENT, y=COL_GROUP, data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
             else:
-                sns.barplot(x='Grupa', y='Srednica_mm', data=df, order=order, ax=ax, capsize=0.2, errorbar=sb_error, palette=pal, orient='v', edgecolor='black', hue='Grupa', legend=False)
-                if show_points: sns.stripplot(x='Grupa', y='Srednica_mm', data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
+                sns.barplot(x=COL_GROUP, y=COL_MEASUREMENT, data=df, order=order, ax=ax, capsize=0.2, errorbar=sb_error, palette=pal, orient='v', edgecolor='black', hue=COL_GROUP, legend=False)
+                if show_points: sns.stripplot(x=COL_GROUP, y=COL_MEASUREMENT, data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
             
             if "SD" in error_bar_choice: ref_points = means + sds
             elif "SEM" in error_bar_choice: ref_points = means + sems
@@ -66,21 +67,21 @@ class Plotter:
 
         elif "Boxplot" in plot_type:
             if is_horiz:
-                sns.boxplot(x='Srednica_mm', y='Grupa', data=df, order=order, ax=ax, palette=pal, orient='h', hue='Grupa', legend=False)
-                if show_points: sns.stripplot(x='Srednica_mm', y='Grupa', data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
+                sns.boxplot(x=COL_MEASUREMENT, y=COL_GROUP, data=df, order=order, ax=ax, palette=pal, orient='h', hue=COL_GROUP, legend=False)
+                if show_points: sns.stripplot(x=COL_MEASUREMENT, y=COL_GROUP, data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
             else:
-                sns.boxplot(x='Grupa', y='Srednica_mm', data=df, order=order, ax=ax, palette=pal, orient='v', hue='Grupa', legend=False)
-                if show_points: sns.stripplot(x='Grupa', y='Srednica_mm', data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
+                sns.boxplot(x=COL_GROUP, y=COL_MEASUREMENT, data=df, order=order, ax=ax, palette=pal, orient='v', hue=COL_GROUP, legend=False)
+                if show_points: sns.stripplot(x=COL_GROUP, y=COL_MEASUREMENT, data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
             max_val_data = maxs.max()
             ref_points = maxs 
 
         elif "Violinplot" in plot_type:
             if is_horiz:
-                sns.violinplot(x='Srednica_mm', y='Grupa', data=df, order=order, ax=ax, palette=pal, orient='h', inner="stick", hue='Grupa', legend=False)
-                if show_points: sns.stripplot(x='Srednica_mm', y='Grupa', data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
+                sns.violinplot(x=COL_MEASUREMENT, y=COL_GROUP, data=df, order=order, ax=ax, palette=pal, orient='h', inner="stick", hue=COL_GROUP, legend=False)
+                if show_points: sns.stripplot(x=COL_MEASUREMENT, y=COL_GROUP, data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
             else:
-                sns.violinplot(x='Grupa', y='Srednica_mm', data=df, order=order, ax=ax, palette=pal, orient='v', inner="stick", hue='Grupa', legend=False)
-                if show_points: sns.stripplot(x='Grupa', y='Srednica_mm', data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
+                sns.violinplot(x=COL_GROUP, y=COL_MEASUREMENT, data=df, order=order, ax=ax, palette=pal, orient='v', inner="stick", hue=COL_GROUP, legend=False)
+                if show_points: sns.stripplot(x=COL_GROUP, y=COL_MEASUREMENT, data=df, order=order, ax=ax, color='black', alpha=0.6, jitter=True, size=4)
             max_val_data = maxs.max()
             ref_points = maxs
 
@@ -88,14 +89,14 @@ class Plotter:
         else: final_limit = max_val_data * 1.15
 
         if is_horiz:
-            if show_line: ax.axvline(x=6, color='red', linestyle='--', alpha=0.5, label='Krążek (6mm)')
+            if show_line: ax.axvline(x=DISC_DIAMETER_MM, color='red', linestyle='--', alpha=0.5, label=f'Krążek ({DISC_DIAMETER_MM:g}mm)')
             ax.set_xlim(0, final_limit)
             ax.tick_params(axis='y', labelsize=f_lbl) 
             ax.tick_params(axis='x', labelsize=f_lbl)
             ax.set_xlabel("Średnica strefy (mm)", fontsize=f_ttl)
             ax.set_ylabel("", fontsize=f_ttl)
         else:
-            if show_line: ax.axhline(y=6, color='red', linestyle='--', alpha=0.5, label='Krążek (6mm)')
+            if show_line: ax.axhline(y=DISC_DIAMETER_MM, color='red', linestyle='--', alpha=0.5, label=f'Krążek ({DISC_DIAMETER_MM:g}mm)')
             ax.set_ylim(0, final_limit)
             plt.setp(ax.get_xticklabels(), rotation=45, ha="right", fontsize=f_lbl) 
             ax.tick_params(axis='y', labelsize=f_lbl)
@@ -104,7 +105,7 @@ class Plotter:
 
         if show_line: ax.legend(loc='upper right')
 
-        offset_val = df['Srednica_mm'].max() * s_off
+        offset_val = df[COL_MEASUREMENT].max() * s_off
         for i, g in enumerate(order):
             if g in sig_set:
                 try:
@@ -119,10 +120,10 @@ class Plotter:
         return fig
 
     def draw_heatmap(self, df, bact):
-        df_mean = df.groupby('Grupa')['Srednica_mm'].mean().sort_values(ascending=False)
+        df_mean = df.groupby(COL_GROUP)[COL_MEASUREMENT].mean().sort_values(ascending=False)
         data = df_mean.to_frame(name="Średnica (mm)")
         h = max(6, len(data) * 0.4) 
-        fig = plt.Figure(figsize=(8, h), dpi=100) 
+        fig = plt.Figure(figsize=(8, h), dpi=SCREEN_DPI) 
         ax = fig.add_subplot(111)
         
         pal = self.config["palette"]
@@ -161,12 +162,12 @@ class Plotter:
 
         h = max(6, len(p_matrix) * 0.5)
         w = max(8, len(p_matrix) * 0.5)
-        fig = plt.Figure(figsize=(w, h), dpi=100)
+        fig = plt.Figure(figsize=(w, h), dpi=SCREEN_DPI)
         ax = fig.add_subplot(111)
         
         mask = np.triu(np.ones_like(p_matrix, dtype=bool))
         sns.heatmap(p_matrix, mask=mask, annot=True, fmt=".3f", 
-                    cmap="RdBu_r", center=0.05, vmin=0, vmax=1,
+                    cmap="RdBu_r", center=ALPHA, vmin=0, vmax=1,
                     ax=ax, linewidths=1, linecolor='white',
                     cbar_kws={'label': 'P-value (Istotność)'})
 
@@ -183,17 +184,17 @@ class Plotter:
         ax_max = self.config["axis_max"]
         
         trend_data = []
-        for g in df['Grupa'].unique():
+        for g in df[COL_GROUP].unique():
             sub, conc, unit = utils.parse_concentration(g)
             if sub is not None:
-                measurements = df[df['Grupa'] == g]['Srednica_mm'].values
+                measurements = df[df[COL_GROUP] == g][COL_MEASUREMENT].values
                 for m in measurements:
                     trend_data.append({"Substancja": sub, "Stężenie": conc, "Jednostka": unit, "Średnica": m})
         if not trend_data:
             return None, "Nie wykryto stężeń w nazwach grup."
         
         df_trend = pd.DataFrame(trend_data)
-        fig = plt.Figure(figsize=(8, 6), dpi=100)
+        fig = plt.Figure(figsize=(8, 6), dpi=SCREEN_DPI)
         ax = fig.add_subplot(111)
         
         sns.lineplot(data=df_trend, x="Stężenie", y="Średnica", hue="Substancja", style="Substancja", markers=True, dashes=False, ax=ax, err_style="band", palette=pal)
@@ -219,7 +220,7 @@ class Plotter:
         if correlations:
             # Dodaj MIC do boxa
             if mic_data:
-                correlations.append("\n[MIC Estimates (D=6mm)]")
+                correlations.append(f"\n[MIC Estimates (D={DISC_DIAMETER_MM:g}mm)]")
                 for sub, res in mic_data.items():
                     if res and res['MIC']:
                         correlations.append(f"{sub}: {res['MIC']:.2f} {res['Unit']}")
@@ -244,7 +245,7 @@ class Plotter:
         colors_list = ['red' if v < 0 else 'green' for v in values]
 
         h = max(6, len(sig_results) * 0.45)
-        fig = plt.Figure(figsize=(9, h), dpi=100)
+        fig = plt.Figure(figsize=(9, h), dpi=SCREEN_DPI)
         ax = fig.add_subplot(111)
         
         y_pos = np.arange(len(labels))
@@ -270,7 +271,7 @@ class Plotter:
         # Walidacja
         if not selected_substances: return None
 
-        df_cross = df[df['Grupa'].isin(selected_substances)].copy()
+        df_cross = df[df[COL_GROUP].isin(selected_substances)].copy()
         if df_cross.empty: return None
 
         f_lbl = self.config["font_labels"]
@@ -284,14 +285,14 @@ class Plotter:
         calc_width = max(10, num_bact * 2.5)
         calc_height = 11 
         
-        fig = plt.Figure(figsize=(calc_width, calc_height), dpi=100) 
+        fig = plt.Figure(figsize=(calc_width, calc_height), dpi=SCREEN_DPI) 
         ax = fig.add_subplot(111)
         
         sns.barplot(
             data=df_cross, 
             x=col_bact_name, 
-            y='Srednica_mm', 
-            hue='Grupa', 
+            y=COL_MEASUREMENT, 
+            hue=COL_GROUP, 
             ax=ax, 
             palette=pal, 
             capsize=0.04, 
@@ -335,7 +336,7 @@ class Plotter:
     def draw_pca(self, pca_data):
         (pca_df, explained_variance) = pca_data
         
-        fig = plt.Figure(figsize=(8, 6), dpi=100)
+        fig = plt.Figure(figsize=(8, 6), dpi=SCREEN_DPI)
         ax = fig.add_subplot(111)
         
         # Scatter plot

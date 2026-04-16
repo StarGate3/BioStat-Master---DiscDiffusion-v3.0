@@ -6,6 +6,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+from config import COL_GROUP, PDF_DPI
 
 def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
     """
@@ -48,9 +49,9 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
         # 2. Tabela Statystyk
         if stats_summary is not None:
             elements.append(Paragraph("Statystyki Opisowe", styles['Heading2']))
-            table_data = [['Grupa', 'Średnia (mm)', 'SD (±)', 'N']]
+            table_data = [[COL_GROUP, 'Średnia (mm)', 'SD (±)', 'N']]
             for index, row in stats_summary.iterrows():
-                table_data.append([row['Grupa'], f"{row['mean']:.2f}", f"{row['std']:.2f}", f"{int(row['count'])}"])
+                table_data.append([row[COL_GROUP], f"{row['mean']:.2f}", f"{row['std']:.2f}", f"{int(row['count'])}"])
             t = Table(table_data, colWidths=[200, 80, 80, 50])
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey), 
@@ -74,7 +75,7 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
                 
                 img_buf = io.BytesIO()
                 # Zapisujemy wykres do bufora pamięci
-                fig.savefig(img_buf, format='png', dpi=150, bbox_inches='tight')
+                fig.savefig(img_buf, format='png', dpi=PDF_DPI, bbox_inches='tight')
                 img_buf.seek(0)
                 
                 img = Image(img_buf)

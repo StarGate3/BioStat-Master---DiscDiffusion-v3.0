@@ -1,4 +1,5 @@
 import customtkinter as ctk
+from config import ALPHA, DISC_DIAMETER_MM
 
 # ======================================================
 # OKNO DIALOGOWE - OUTLIERY (DIXON)
@@ -79,10 +80,10 @@ class HelpDialog(ctk.CTkToplevel):
         self.add_section("1. ALGORYTM DZIAŁANIA PROGRAMU")
         self.add_text("Program automatycznie dobiera odpowiedni test statystyczny, podążając za poniższą logiką (drzewo decyzyjne):")
         
-        self.add_entry("Krok 1: Normalność (Shapiro-Wilk)", 
-                       "Sprawdzamy, czy dane w każdej grupie układają się w 'krzywą dzwonową'.\n"
-                       "• p > 0.05: Rozkład normalny (OK).\n"
-                       "• p < 0.05: Rozkład inny niż normalny (częste w małych próbach n=3).")
+        self.add_entry("Krok 1: Normalność (Shapiro-Wilk)",
+                       f"Sprawdzamy, czy dane w każdej grupie układają się w 'krzywą dzwonową'.\n"
+                       f"• p > {ALPHA}: Rozkład normalny (OK).\n"
+                       f"• p < {ALPHA}: Rozkład inny niż normalny (częste w małych próbach n=3).")
         
         self.add_entry("Krok 2: Wariancja (Levene)", 
                        "Sprawdzamy, czy grupy mają podobny 'rozrzut' wyników.\n"
@@ -100,9 +101,9 @@ class HelpDialog(ctk.CTkToplevel):
                        "Najlepszy balans. Jest silniejsza niż brak korekty, ale nie tak 'brutalna' jak Bonferroni. "
                        "Dobra do większości standardowych badań.")
         
-        self.add_entry("Bonferroni", 
-                       "Bardzo konserwatywna. Bardzo trudno uzyskać p < 0.05. "
-                       "Stosuj tylko, gdy musisz mieć absolutną pewność i chcesz uniknąć fałszywych alarmów za wszelką cenę.")
+        self.add_entry("Bonferroni",
+                       f"Bardzo konserwatywna. Bardzo trudno uzyskać p < {ALPHA}. "
+                       f"Stosuj tylko, gdy musisz mieć absolutną pewność i chcesz uniknąć fałszywych alarmów za wszelką cenę.")
         
         self.add_entry("FDR (Benjamini-Hochberg)", 
                        "Najmniej rygorystyczna. Dopuszcza pewien odsetek fałszywych odkryć. "
@@ -121,14 +122,14 @@ class HelpDialog(ctk.CTkToplevel):
                        "• Pudełko: Obejmuje 50% środkowych wyników (od 25. do 75. percentyla).\n"
                        "• Wąsy: Zasięg danych (min-max), z wyłączeniem wartości odstających.")
 
-        self.add_entry("Wykres 'Lollipop' (Wielkość Efektu)", 
-                       "Najważniejszy wykres do oceny 'siły' działania.\n"
-                       "• Oś pozioma (Cohen's d): Mówi, ile 'odchyleń standardowych' dzieli dwie grupy.\n"
-                       "• Kropka ZIELONA (W prawo): Grupa badana jest lepsza/silniejsza.\n"
-                       "• Kropka CZERWONA (W lewo): Grupa badana jest gorsza/słabsza.\n"
-                       "UWAGA: Wykres prezentuje wyłącznie pary różniące się istotnie statystycznie (p < 0.05), "
-                       "aby zachować czytelność. Pełne wyniki dla wszystkich par (również nieistotnych) "
-                       "znajdziesz w raporcie Excel (zakładka 'Post-hoc Details').")
+        self.add_entry("Wykres 'Lollipop' (Wielkość Efektu)",
+                       f"Najważniejszy wykres do oceny 'siły' działania.\n"
+                       f"• Oś pozioma (Cohen's d): Mówi, ile 'odchyleń standardowych' dzieli dwie grupy.\n"
+                       f"• Kropka ZIELONA (W prawo): Grupa badana jest lepsza/silniejsza.\n"
+                       f"• Kropka CZERWONA (W lewo): Grupa badana jest gorsza/słabsza.\n"
+                       f"UWAGA: Wykres prezentuje wyłącznie pary różniące się istotnie statystycznie (p < {ALPHA}), "
+                       f"aby zachować czytelność. Pełne wyniki dla wszystkich par (również nieistotnych) "
+                       f"znajdziesz w raporcie Excel (zakładka 'Post-hoc Details').")
 
         self.add_entry("Mapa Ciepła (Heatmap)", 
                        "Wizualizacja macierzy. Kolory ułatwiają szybkie wyłapanie liderów.\n"
@@ -140,9 +141,9 @@ class HelpDialog(ctk.CTkToplevel):
                        "• Zacieniony obszar: Przedział ufności (95% CI).\n"
                        "• r (korelacja): Mówi, jak mocno stężenie wpływa na wynik (blisko 1.0 = idealna zależność).")
 
-        self.add_entry("Szacowanie MIC (Minimalne Stężenie Hamujące)", 
-                       "Program wyznacza teoretyczne MIC na podstawie punktu przecięcia linii trendu z osią średnicy krążka (6 mm). "
-                       "Jest to model matematyczny logarytmiczno-liniowy. Wynik jest szacunkowy i służy do porównania siły substancji.")
+        self.add_entry("Szacowanie MIC (Minimalne Stężenie Hamujące)",
+                       f"Program wyznacza teoretyczne MIC na podstawie punktu przecięcia linii trendu z osią średnicy krążka ({DISC_DIAMETER_MM:g} mm). "
+                       f"Jest to model matematyczny logarytmiczno-liniowy. Wynik jest szacunkowy i służy do porównania siły substancji.")
 
         self.add_entry("Porównanie Międzygatunkowe", 
                        "Zestawienie działania wybranych substancji na wszystkie badane szczepy bakterii jednocześnie. "
@@ -178,16 +179,16 @@ class HelpDialog(ctk.CTkToplevel):
                     f"Normality was confirmed using the Shapiro-Wilk test. "
                     f"Differences between groups were analyzed using one-way ANOVA, followed by Tukey's HSD post-hoc test for multiple comparisons. "
                     f"Effect sizes were calculated using Cohen’s d estimator. "
-                    f"A p-value < 0.05 was considered statistically significant.\""
+                    f"A p-value < {ALPHA} was considered statistically significant.\""
                 )
             elif "Kruskal" in used_test:
                 generated_text = (
                     f"\"Statistical analysis was performed using Python (scipy, scikit-posthocs). "
-                    f"Due to the non-normal distribution of data (Shapiro-Wilk test, p < 0.05), "
+                    f"Due to the non-normal distribution of data (Shapiro-Wilk test, p < {ALPHA}), "
                     f"differences between groups were analyzed using the Kruskal-Wallis test. "
                     f"Pairwise comparisons were performed using Dunn's post-hoc test with {correction_desc}. "
                     f"Effect sizes were estimated using Cohen’s d. "
-                    f"A p-value < 0.05 was considered statistically significant.\""
+                    f"A p-value < {ALPHA} was considered statistically significant.\""
                 )
             else:
                 generated_text = "Analysis performed, but test type unrecognized."

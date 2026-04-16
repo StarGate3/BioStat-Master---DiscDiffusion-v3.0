@@ -13,6 +13,7 @@ from dialogs import OutlierDialog, HelpDialog, AboutDialog
 import reports
 from logic import StatsEngine
 from plotting import Plotter
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, COL_BACT_SUBSTRING, EXPORT_DPI
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -197,7 +198,7 @@ class App(ctk.CTk):
         for col in df.select_dtypes(['object']).columns:
             df[col] = df[col].str.strip()
 
-        bacteria_col = next(c for c in df.columns if 'Bakteri' in c)
+        bacteria_col = next(c for c in df.columns if COL_BACT_SUBSTRING in c)
 
         total_rows = len(df)
         cleaned_df, rejected = utils.validate_excel_data(df, bacteria_col)
@@ -234,7 +235,7 @@ class App(ctk.CTk):
     def on_bacteria_change(self, selected_bact):
         if self.df is None: return
         try:
-            all_groups = sorted(self.df['Grupa'].unique(), key=utils.smart_sort_key)
+            all_groups = sorted(self.df[COL_GROUP].unique(), key=utils.smart_sort_key)
             
             for cb in self.checkboxes: cb.destroy()
             self.checkboxes = []
@@ -247,7 +248,7 @@ class App(ctk.CTk):
                 self.checkboxes.append(cb)
             
             df_temp = self.df[self.df[self.col_bact_name] == selected_bact]
-            grupy_bact = sorted(df_temp['Grupa'].unique(), key=utils.smart_sort_key)
+            grupy_bact = sorted(df_temp[COL_GROUP].unique(), key=utils.smart_sort_key)
             self.combo_ref.configure(values=grupy_bact)
             woda = next((g for g in grupy_bact if "woda" in g.lower() or "kontrol" in g.lower()), None)
             if woda: self.combo_ref.set(woda)
@@ -318,8 +319,8 @@ Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
 Figure 1. Antibacterial activity of tested samples against {bact}.
 {viz_desc}. Error bars indicate the {err_desc} of independent replicates.
 Statistical significance was determined using {test_name} followed by {post_hoc} for multiple comparisons.
-Asterisks (*) indicate a statistically significant difference (p < 0.05) compared to the negative control ({ref_group}).
-Red dashed line represents the diameter of the disk (6 mm).
+Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the negative control ({ref_group}).
+Red dashed line represents the diameter of the disk ({DISC_DIAMETER_MM:g} mm).
 
 === Rycina 2: Mapa Ciepła ===
 Figure 2. Heatmap visualizing the magnitude of growth inhibition zones (mm) for {bact} treated with various substances.
@@ -331,7 +332,7 @@ Dots represent the magnitude of the difference between groups. Green dots indica
 
 === Rycina 4: Mapa Istotności (P-value Matrix) ===
 Figure 4. Pairwise comparison significance matrix (P-values).
-The heatmap displays adjusted p-values for all pairwise comparisons. Blue shades indicate statistical significance (p < 0.05), while red/white shades indicate non-significant differences.
+The heatmap displays adjusted p-values for all pairwise comparisons. Blue shades indicate statistical significance (p < {ALPHA}), while red/white shades indicate non-significant differences.
 P-values were adjusted for multiple comparisons using the {post_hoc} method.
 
 === Rycina 5: Trend Dawka-Odpowiedź ===
@@ -372,7 +373,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         else: self.switch_points.deselect()
         self.switch_points.pack(pady=10)
 
-        self.switch_line = ctk.CTkSwitch(self.settings_win, text="Pokaż linię krążka (6mm)")
+        self.switch_line = ctk.CTkSwitch(self.settings_win, text=f"Pokaż linię krążka ({DISC_DIAMETER_MM:g}mm)")
         if self.plot_config["show_disk_line"]: self.switch_line.select()
         else: self.switch_line.deselect()
         self.switch_line.pack(pady=10)
@@ -441,7 +442,7 @@ Error bars represent standard deviation. This overview highlights the differenti
             )
             return False
 
-        sparse = [(g, int((df_run['Grupa'] == g).sum())) for g in selected_groups]
+        sparse = [(g, int((df_run[COL_GROUP] == g).sum())) for g in selected_groups]
         sparse = [(g, n) for g, n in sparse if n < 3]
         if sparse:
             sparse_lines = "\n".join(f"• '{g}' — {n} obserwacji" for g, n in sparse)
@@ -478,7 +479,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         # 1. Filtrowanie wstępne
         df_run = self.df[
             (self.df[self.col_bact_name] == bact) & 
-            (self.df['Grupa'].isin(wybrane))
+            (self.df[COL_GROUP].isin(wybrane))
         ].copy()
 
         if df_run.empty: return
@@ -493,13 +494,13 @@ Error bars represent standard deviation. This overview highlights the differenti
             self.wait_window(dialog) 
             if dialog.result:
                 for item in dialog.result:
-                    mask = (df_run['Grupa'] == item['Group']) & (df_run['Srednica_mm'] == item['Srednica_mm'])
+                    mask = (df_run[COL_GROUP] == item['Group']) & (df_run[COL_MEASUREMENT] == item['Srednica_mm'])
                     idx = df_run[mask].first_valid_index()
                     if idx is not None: df_run = df_run.drop(idx)
                 self.log(f"!!! USUNIĘTO {len(dialog.result)} WARTOŚCI ODSTAJĄCYCH !!!")
 
         self.export_data_raw = df_run
-        self.stats_summary = df_run.groupby('Grupa')['Srednica_mm'].agg(['mean', 'std', 'count']).reset_index()
+        self.stats_summary = df_run.groupby(COL_GROUP)[COL_MEASUREMENT].agg(['mean', 'std', 'count']).reset_index()
 
         # 3. STAT ENGINE (Delegacja)
         summary_res, posthoc_df, error = self.stats_engine.run_statistics(df_run, method, ref_group)
@@ -624,7 +625,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         if not file_path: return
         try:
             is_transparent = self.plot_config["transparent_background"]
-            fig_to_save.savefig(file_path, dpi=300, bbox_inches='tight', transparent=is_transparent)
+            fig_to_save.savefig(file_path, dpi=EXPORT_DPI, bbox_inches='tight', transparent=is_transparent)
             messagebox.showinfo("Sukces", "Wykres zapisany!")
         except Exception as e: messagebox.showerror("Błąd Zapisu", str(e))
 

@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import config; import utils; import logic; import plotting; import reports; import dialogs; import gui; print\\('all modules imported OK'\\)\")"
+    ]
+  }
+}

@@ -6,6 +6,7 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import utils
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT
 
 class StatsEngine:
     def __init__(self):
@@ -24,8 +25,8 @@ class StatsEngine:
         dane_list = []
         
         # Filtrujemy grupy z < 2 pomiarami
-        for g in df_run['Grupa'].unique():
-             data = df_run[df_run['Grupa'] == g]['Srednica_mm'].values
+        for g in df_run[COL_GROUP].unique():
+             data = df_run[df_run[COL_GROUP] == g][COL_MEASUREMENT].values
              if len(data) >= 2:
                 valid_groups.append(g)
                 dane_list.append(data)
@@ -37,12 +38,12 @@ class StatsEngine:
         all_normal = True
         normality_results = []
         for g in valid_groups:
-            vals = df_run[df_run['Grupa'] == g]['Srednica_mm']
+            vals = df_run[df_run[COL_GROUP] == g][COL_MEASUREMENT]
             p_shapiro = 0
             is_norm = False
             if len(vals) >= 3 and vals.std() > 0:
                 s, p_shapiro = stats.shapiro(vals)
-                if p_shapiro >= 0.05: is_norm = True
+                if p_shapiro >= ALPHA: is_norm = True
             if not is_norm: all_normal = False
             normality_results.append({"Grupa": g, "Shapiro p-value": p_shapiro, "Rozkład Normalny?": "TAK" if is_norm else "NIE"})
 
@@ -53,7 +54,7 @@ class StatsEngine:
             print(f"Warning: Levene error: {e}")
             p_levene = 0
         
-        use_parametric = all_normal and p_levene > 0.05
+        use_parametric = all_normal and p_levene > ALPHA
         
         stats_main = []
         posthoc_df = None
@@ -65,8 +66,8 @@ class StatsEngine:
             try:
                 f, p = stats.f_oneway(*dane_list)
                 stats_main = [{"Test": "ANOVA", "Statistic": f, "p-value": p}]
-                if p < 0.05:
-                    tukey = pairwise_tukeyhsd(df_run['Srednica_mm'], df_run['Grupa'], 0.05)
+                if p < ALPHA:
+                    tukey = pairwise_tukeyhsd(df_run[COL_MEASUREMENT], df_run[COL_GROUP], ALPHA)
                     posthoc_df = pd.DataFrame(data=tukey._results_table.data[1:], columns=tukey._results_table.data[0])
             except Exception as e: return None, None, f"Błąd ANOVA: {e}"
         else:
@@ -74,8 +75,8 @@ class StatsEngine:
             try:
                 h, p = stats.kruskal(*dane_list)
                 stats_main = [{"Test": "Kruskal-Wallis", "Statistic": h, "p-value": p}]
-                if p < 0.05:
-                    posthoc_df = sp.posthoc_dunn(df_run, 'Srednica_mm', 'Grupa', p_adjust=method)
+                if p < ALPHA:
+                    posthoc_df = sp.posthoc_dunn(df_run, COL_MEASUREMENT, COL_GROUP, p_adjust=method)
             except Exception as e: return None, None, f"Błąd Kruskal: {e}"
 
         return {
@@ -114,15 +115,15 @@ class StatsEngine:
                         pair = tuple(sorted((str(r), str(c))))
                         if pair not in seen:
                             pval = posthoc_df.loc[r, c]
-                            is_sig = pval < 0.05
+                            is_sig = pval < ALPHA
                             self._add_detail(r, c, pval, is_sig, df_data, ref_group, detailed_results, sig_set)
                             seen.add(pair)
         
         return detailed_results, sig_set
 
     def _add_detail(self, g1, g2, p_val, is_sig, df_data, ref, results_list, sig_set):
-        data1 = df_data[df_data['Grupa'] == g1]['Srednica_mm'].values
-        data2 = df_data[df_data['Grupa'] == g2]['Srednica_mm'].values
+        data1 = df_data[df_data[COL_GROUP] == g1][COL_MEASUREMENT].values
+        data2 = df_data[df_data[COL_GROUP] == g2][COL_MEASUREMENT].values
         
         d_val = utils.calculate_cohens_d(data1, data2)
         d_interp = utils.get_effect_size_interpretation(d_val)
@@ -142,10 +143,10 @@ class StatsEngine:
         Rows: Bacteria, Columns: Substances, Values: Mean Zone Diameter.
         """
         # 1. Filtrujemy dane tylko dla wybranych substancji
-        df_filtered = df[df['Grupa'].isin(selected_substances)].copy()
-        
+        df_filtered = df[df[COL_GROUP].isin(selected_substances)].copy()
+
         # 2. Pivot Table: Wiersze=Bakterie, Kolumny=Substancje
-        df_pivot = df_filtered.pivot_table(index=col_bact, columns='Grupa', values='Srednica_mm', aggfunc='mean')
+        df_pivot = df_filtered.pivot_table(index=col_bact, columns=COL_GROUP, values=COL_MEASUREMENT, aggfunc='mean')
         
         if df_pivot.empty or len(df_pivot) < 3:
             return None, "Za mało danych do PCA (wymagane min. 3 szczepy)."
@@ -171,7 +172,7 @@ class StatsEngine:
         explained_variance = pca.explained_variance_ratio_
         return (pca_df, explained_variance), None
 
-    def estimate_mic(self, df, selected_substances, target_diameter=6.0):
+    def estimate_mic(self, df, selected_substances, target_diameter=DISC_DIAMETER_MM):
         """
         Estimates MIC for each substance using Log-Linear Regression.
         Model: Diameter = a + b * ln(Concentration)
@@ -184,18 +185,18 @@ class StatsEngine:
             # Musimy wyciągnąć stężenia z nazw grup.
             # Używamy utils.parse_concentration
             
-            sub_df = df[df['Grupa'].str.contains(sub, regex=False)].copy() # Wstępne filtrowanie, ale dokładne parsowanie niżej
-            
+            sub_df = df[df[COL_GROUP].str.contains(sub, regex=False)].copy() # Wstępne filtrowanie, ale dokładne parsowanie niżej
+
             x_concs = []
             y_diams = []
             valid_unit = ""
-            
-            for g in sub_df['Grupa'].unique():
+
+            for g in sub_df[COL_GROUP].unique():
                 parsed_sub, conc, unit = utils.parse_concentration(g)
                 # Sprawdź czy to ta substancja (bo contains jest luźne)
                 if parsed_sub and sub in parsed_sub and conc is not None:
                     # Pobierz wszystkie pomiary dla tej grupy
-                    measurements = sub_df[sub_df['Grupa'] == g]['Srednica_mm'].values
+                    measurements = sub_df[sub_df[COL_GROUP] == g][COL_MEASUREMENT].values
                     for m in measurements:
                         if conc > 0:
                             x_concs.append(conc)
