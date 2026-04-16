@@ -194,21 +194,41 @@ class App(ctk.CTk):
             messagebox.showerror("Błąd walidacji pliku", body)
             return
 
-        try:
-            for col in df.select_dtypes(['object']).columns:
-                df[col] = df[col].str.strip()
+        for col in df.select_dtypes(['object']).columns:
+            df[col] = df[col].str.strip()
 
-            self.df = df
+        bacteria_col = next(c for c in df.columns if 'Bakteri' in c)
+
+        total_rows = len(df)
+        cleaned_df, rejected = utils.validate_excel_data(df, bacteria_col)
+
+        if rejected:
+            if len(cleaned_df) == 0:
+                messagebox.showerror(
+                    "Brak poprawnych danych",
+                    f"Wczytano {total_rows} wierszy. Wszystkie zostały odrzucone podczas walidacji — brak danych do analizy."
+                )
+                return
+            max_show = 15
+            shown_lines = [f"Wiersz {n}: {reason}" for n, reason in rejected[:max_show]]
+            if len(rejected) > max_show:
+                shown_lines.append(f"... oraz {len(rejected) - max_show} więcej.")
+            body = (
+                f"Wczytano {total_rows} wierszy. Odrzucono {len(rejected)}:\n\n"
+                + "\n".join(shown_lines)
+                + f"\n\nPozostało {len(cleaned_df)} wierszy do analizy."
+            )
+            messagebox.showwarning("Odrzucono nieprawidłowe wiersze", body)
+
+        try:
+            self.df = cleaned_df
+            self.col_bact_name = bacteria_col
             self.lbl_file.configure(text=os.path.basename(path), text_color="white")
-            col = next((c for c in self.df.columns if 'Bakteri' in c), None)
-            if col:
-                self.col_bact_name = col
-                bacts = list(self.df[col].unique())
-                self.combo_bact.configure(values=bacts)
-                self.combo_bact.set(bacts[0])
-                self.on_bacteria_change(bacts[0])
-                self.log(f"Wczytano plik. Znaleziono szczepy: {bacts}")
-            else: messagebox.showerror("Błąd", "Brak kolumny 'Bakterie'.")
+            bacts = list(self.df[bacteria_col].unique())
+            self.combo_bact.configure(values=bacts)
+            self.combo_bact.set(bacts[0])
+            self.on_bacteria_change(bacts[0])
+            self.log(f"Wczytano plik. Znaleziono szczepy: {bacts}")
         except Exception as e: messagebox.showerror("Błąd", f"Nie udało się wczytać: {e}")
 
     def on_bacteria_change(self, selected_bact):
@@ -409,6 +429,40 @@ Error bars represent standard deviation. This overview highlights the differenti
         if self.df is not None: self.run_analysis()
 
     # ==================== GŁÓWNA ANALIZA (REFACTORED) ====================
+    def _check_analysis_preconditions(self, df_run, selected_groups):
+        """
+        Sanity-check pre-analizy. Zwraca True -> kontynuuj, False -> przerwij
+        (z powodu twardego bloku albo anulowania przez użytkownika).
+        """
+        if len(selected_groups) < 2:
+            messagebox.showerror(
+                "Niewystarczająca liczba grup",
+                "Wybrano mniej niż 2 grupy — nie można wykonać porównania statystycznego."
+            )
+            return False
+
+        sparse = [(g, int((df_run['Grupa'] == g).sum())) for g in selected_groups]
+        sparse = [(g, n) for g, n in sparse if n < 3]
+        if sparse:
+            sparse_lines = "\n".join(f"• '{g}' — {n} obserwacji" for g, n in sparse)
+            msg = (
+                f"Następujące grupy mają mniej niż 3 obserwacje:\n\n{sparse_lines}\n\n"
+                "Testy statystyczne będą miały niską moc. Czy kontynuować?"
+            )
+            if not messagebox.askokcancel("Niska moc statystyczna", msg):
+                return False
+
+        total = len(df_run)
+        if total < 10:
+            msg = (
+                f"Łącznie wybrano tylko {total} obserwacji. "
+                "Wyniki mogą być niewiarygodne. Czy kontynuować?"
+            )
+            if not messagebox.askokcancel("Mała próba", msg):
+                return False
+
+        return True
+
     def run_analysis(self):
         if self.df is None: return
         bact = self.combo_bact.get()
@@ -428,6 +482,9 @@ Error bars represent standard deviation. This overview highlights the differenti
         ].copy()
 
         if df_run.empty: return
+
+        if not self._check_analysis_preconditions(df_run, wybrane):
+            return
 
         # 2. Outliery (UI Logic)
         outliers_data = utils.find_outliers_dixon(df_run)

@@ -1,5 +1,6 @@
 import re
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 # --- SORTOWANIE I PARSOWANIE ---
@@ -100,3 +101,51 @@ def validate_excel_structure(df):
         errors.append("Plik nie zawiera żadnych wierszy danych.")
 
     return (len(errors) == 0, errors)
+
+# --- WALIDACJA WARTOŚCI KOMÓREK ---
+def validate_excel_data(df, bacteria_col):
+    """
+    Walidacja wartości komórek (po walidacji strukturalnej).
+    Zwraca (cleaned_df, rejected_rows_info), gdzie rejected_rows_info to lista
+    tupli (excel_row_number, reason_polish). Numer wiersza = indeks pandas + 2
+    (zero-indexing + wiersz nagłówka), aby odpowiadać numeracji w Excelu.
+    """
+    rejected = []
+    valid_indices = []
+
+    for idx in df.index:
+        excel_row = idx + 2
+        reason = None
+
+        val = df.at[idx, 'Srednica_mm']
+        if pd.isna(val):
+            reason = "Brak wartości w kolumnie 'Srednica_mm'."
+        else:
+            try:
+                fval = float(val)
+                if not np.isfinite(fval):
+                    reason = f"Nieprawidłowa wartość 'Srednica_mm' ({val!r}) — wartość nieskończona."
+                elif fval <= 0:
+                    reason = f"Nieprawidłowa wartość 'Srednica_mm' ({val!r}) — musi być większa niż 0."
+                elif fval > 100:
+                    reason = f"Podejrzana wartość 'Srednica_mm' ({val!r}) — większa niż 100 mm (prawdopodobny błąd pomiaru)."
+            except (ValueError, TypeError):
+                reason = f"Nieprawidłowa wartość 'Srednica_mm' ({val!r}) — nie można przekształcić na liczbę."
+
+        if reason is None:
+            grp = df.at[idx, 'Grupa']
+            if pd.isna(grp) or (isinstance(grp, str) and grp.strip() == ""):
+                reason = "Pusta wartość w kolumnie 'Grupa'."
+
+        if reason is None:
+            bact_val = df.at[idx, bacteria_col]
+            if pd.isna(bact_val) or (isinstance(bact_val, str) and bact_val.strip() == ""):
+                reason = f"Pusta wartość w kolumnie bakterii ('{bacteria_col}')."
+
+        if reason is None:
+            valid_indices.append(idx)
+        else:
+            rejected.append((excel_row, reason))
+
+    cleaned_df = df.loc[valid_indices].reset_index(drop=True)
+    return cleaned_df, rejected
