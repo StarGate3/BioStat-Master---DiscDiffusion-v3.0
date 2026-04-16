@@ -198,7 +198,7 @@ class App(ctk.CTk):
         for col in df.select_dtypes(['object']).columns:
             df[col] = df[col].str.strip()
 
-        bacteria_col = next(c for c in df.columns if COL_BACT_SUBSTRING in c)
+        bacteria_col = utils.find_bacteria_column(df)
 
         total_rows = len(df)
         cleaned_df, rejected = utils.validate_excel_data(df, bacteria_col)

@@ -113,7 +113,9 @@ class Plotter:
                     pos = base_pos + offset_val
                     if is_horiz: ax.text(pos, i, "*", va='center', fontweight='bold', fontsize=f_ttl+2)
                     else: ax.text(i, pos, "*", ha='center', fontweight='bold', fontsize=f_ttl+2)
-                except: pass
+                # Silently skip the star when the group has no ref_points entry
+                # (e.g. all its rows were filtered out upstream).
+                except KeyError: pass
 
         ax.set_title(f"{bact} vs {ref}", fontsize=f_ttl+2, fontweight='bold')
         fig.tight_layout()
@@ -213,7 +215,9 @@ class Plotter:
                     try:
                         r, p = stats.spearmanr(sub_df["Stężenie"], sub_df["Średnica"])
                         correlations.append(f"{sub}: r={r:.2f} (p={p:.3f})")
-                    except Exception as e:
+                    # spearmanr can raise ValueError on degenerate input and
+                    # TypeError on non-numeric data; other errors propagate.
+                    except (ValueError, TypeError) as e:
                         correlations.append(f"{sub}: błąd ({str(e)})")
                 else: correlations.append(f"{sub}: brak zmienności")
         

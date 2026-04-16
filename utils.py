@@ -21,6 +21,14 @@ def smart_sort_key(group_name):
         return (name, val)
     else: return (group_name, 0.0)
 
+def find_bacteria_column(df):
+    """
+    Zwraca nazwę pierwszej kolumny zawierającej COL_BACT_SUBSTRING,
+    albo None, jeśli żadna kolumna nie pasuje. Dopasowanie jest
+    wrażliwe na wielkość liter (case-sensitive).
+    """
+    return next((c for c in df.columns if COL_BACT_SUBSTRING in c), None)
+
 def parse_concentration(group_name):
     """Wyciąganie stężenia i jednostki z nazwy grupy."""
     match = re.search(CONCENTRATION_SEARCH_PATTERN, group_name)
@@ -93,7 +101,7 @@ def validate_excel_structure(df):
     """
     errors = []
 
-    if not any(COL_BACT_SUBSTRING in c for c in df.columns):
+    if find_bacteria_column(df) is None:
         errors.append(f"Brak wymaganej kolumny z nazwą bakterii (kolumny zawierającej w nazwie {COL_BACT_SUBSTRING!r}).")
 
     if COL_GROUP not in df.columns:
