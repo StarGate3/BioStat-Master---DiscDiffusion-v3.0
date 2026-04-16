@@ -417,6 +417,7 @@ Error bars represent standard deviation. This overview highlights the differenti
                 self.log(f"!!! USUNIĘTO {len(dialog.result)} WARTOŚCI ODSTAJĄCYCH !!!")
 
         self.export_data_raw = df_run
+        self.stats_summary = df_run.groupby('Grupa')['Srednica_mm'].agg(['mean', 'std', 'count']).reset_index()
 
         # 3. STAT ENGINE (Delegacja)
         summary_res, posthoc_df, error = self.stats_engine.run_statistics(df_run, method, ref_group)
