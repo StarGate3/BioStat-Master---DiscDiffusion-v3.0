@@ -13,7 +13,7 @@ from dialogs import OutlierDialog, HelpDialog, AboutDialog
 import reports
 from logic import StatsEngine
 from plotting import Plotter
-from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, COL_BACT_SUBSTRING, EXPORT_DPI
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
