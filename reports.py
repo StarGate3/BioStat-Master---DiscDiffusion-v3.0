@@ -111,8 +111,11 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
         if figures.get('trend'): 
             add_plot_to_pdf(figures['trend'], "Trend Zależności od Dawki")
             
-        if figures.get('cross'): 
+        if figures.get('cross'):
             add_plot_to_pdf(figures['cross'], "Porównanie Międzygatunkowe")
+
+        if figures.get('pca'):
+            add_plot_to_pdf(figures['pca'], "Analiza PCA (Główne Składowe)")
 
         # 4. Werdykt
         elements.append(Paragraph("Werdykt Statystyczny (Istotne różnice)", styles['Heading2']))
