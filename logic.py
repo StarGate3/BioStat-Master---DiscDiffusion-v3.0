@@ -225,7 +225,12 @@ class StatsEngine:
                     "Slope": slope,
                     "Intercept": intercept
                 }
-            except:
+            # Skip this substance on degenerate regression input: linregress
+            # raises ValueError on non-finite / zero-variance data, TypeError
+            # guards non-numeric slipping past parse_concentration, LinAlgError
+            # for any underlying solver failure. KeyboardInterrupt / SystemExit
+            # now propagate correctly.
+            except (ValueError, TypeError, np.linalg.LinAlgError):
                 pass
                 
         return results
