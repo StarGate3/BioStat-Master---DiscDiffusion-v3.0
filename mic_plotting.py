@@ -156,3 +156,128 @@ def draw_mic_mbc_distribution(bact, substancja, mic_bio_results, mbc_bio_results
     else:
         fig.tight_layout()
     return fig
+
+
+def draw_mic_mbc_pairs(bact, rows, config=None):
+    """
+    WYJŚCIE 2: dla każdej substancji jednego szczepu, odstęp MIC<->MBC na
+    skali log2, kolorem/oznaczeniem klasyfikacji (bakteriobójcze/
+    bakteriostatyczne/nieoznaczalny - patrz CLASSIFICATION_COLORS). Próg
+    klasyfikacji (d=2 i d=3) narysowany jako znaczniki WZGLĘDEM MIC każdej
+    substancji (próg jest zdefiniowany na różnicy rozcieńczeń, nie na
+    wartości bezwzględnej).
+
+    rows: lista dictów, jeden na substancję - {"Substancja", "mic", "mbc",
+    "classification", "ratio_display"} gdzie mic/mbc to wyniki w kształcie
+    {mic_value, censored} (typowo mediana biologiczna z summarize_mic_group).
+    Gdy MBC jest cenzurowane górnie (">max"), odstęp rysowany jest jako
+    przerywana strzałka otwarta w prawo (prawdziwe MBC może być jeszcze
+    wyższe) zamiast zamkniętego odcinka - "nieoznaczalny" jest więc widoczny
+    już z samego kształtu, nie tylko z koloru.
+    """
+    config = config or {}
+    f_lbl = config.get("font_labels", 10)
+    f_ttl = config.get("font_title", 12)
+
+    rows = [r for r in rows if r.get("mic", {}).get("mic_value") is not None]
+    if not rows:
+        return None
+    rows = sorted(rows, key=lambda r: math.log2(r["mic"]["mic_value"]))
+
+    fig_h = max(3, 0.7 * len(rows) + 1.6)
+    fig = plt.Figure(figsize=(9.5, fig_h), dpi=SCREEN_DPI)
+    ax = fig.add_subplot(111)
+
+    all_vals = []
+    for r in rows:
+        all_vals.append(r["mic"]["mic_value"])
+        if r.get("mbc", {}).get("mic_value") is not None:
+            all_vals.append(r["mbc"]["mic_value"])
+    all_vals_with_margin = all_vals + [v * 9 for v in all_vals]
+
+    has_errors = False
+
+    for i, r in enumerate(rows):
+        mic = r["mic"]
+        mbc = r.get("mbc") or {}
+        mic_val = mic["mic_value"]
+
+        # Błąd spójności (MBC<MIC) MUSI wyglądać inaczej niż każdy poprawny
+        # wynik - nigdy nie renderujemy go jako zwykły "nieoznaczalny"
+        # odcinek/strzałka, bo to zamaskowałoby błąd danych jako niepewność
+        # pomiarową. Czerwone X + linia kropkowana + jawny tekst powodu.
+        if r.get("error_reason"):
+            has_errors = True
+            ax.scatter([mic_val], [i], marker="X", s=160, color="red", edgecolor="black", linewidth=1, zorder=7)
+            label_x = mic_val
+            if mbc.get("mic_value") is not None:
+                mbc_val = mbc["mic_value"]
+                ax.scatter([mbc_val], [i], marker="X", s=160, color="red", edgecolor="black", linewidth=1, zorder=7)
+                ax.plot([min(mic_val, mbc_val), max(mic_val, mbc_val)], [i, i],
+                        color="red", linewidth=2, linestyle=":", alpha=0.9, zorder=3)
+                label_x = max(mic_val, mbc_val)
+            ax.text(
+                label_x * 1.4, i, "BŁĄD SPÓJNOŚCI: MBC < MIC",
+                fontsize=f_lbl - 1, va="center", ha="left", color="red", fontweight="bold",
+            )
+            ax.text(
+                min(all_vals) / 4.5, i, f"{r['Substancja']} [BŁĄD SPÓJNOŚCI]",
+                fontsize=f_lbl, va="center", ha="right", color="red", fontweight="bold",
+            )
+            continue
+
+        classification = r.get("classification")
+        color = CLASSIFICATION_COLORS.get(classification, CLASSIFICATION_COLORS["nieoznaczalny"])
+
+        mic_marker = MARKER_BY_CENSOR.get(mic["censored"], "o")
+        ax.scatter([mic_val], [i], marker=mic_marker, s=100, color=MIC_COLOR, edgecolor="black", linewidth=0.8, zorder=6)
+
+        # progi d=2 / d=3 WZGLĘDEM MIC tej substancji (iloraz 4x i 8x)
+        ax.plot([mic_val * 4, mic_val * 4], [i - 0.18, i + 0.18], color="black", linewidth=1, linestyle=":", alpha=0.5, zorder=1)
+        ax.plot([mic_val * 8, mic_val * 8], [i - 0.18, i + 0.18], color="black", linewidth=1, linestyle="-", alpha=0.4, zorder=1)
+
+        if mbc.get("mic_value") is not None:
+            mbc_val = mbc["mic_value"]
+            mbc_marker = MARKER_BY_CENSOR.get(mbc["censored"], "o")
+            if mbc["censored"] == "high":
+                ax.annotate(
+                    "", xy=(mbc_val * 2.2, i), xytext=(mic_val, i),
+                    arrowprops=dict(arrowstyle="-|>", color=color, lw=2.5, alpha=0.85, linestyle="--"),
+                    zorder=3,
+                )
+            else:
+                ax.plot([mic_val, mbc_val], [i, i], color=color, linewidth=3, alpha=0.8, zorder=3)
+            ax.scatter([mbc_val], [i], marker=mbc_marker, s=100, color=MBC_COLOR, edgecolor="black", linewidth=0.8, zorder=6)
+        else:
+            ax.text(mic_val * 1.3, i, "brak MBC", fontsize=f_lbl - 1, va="center", color="gray", style="italic")
+
+        ratio_txt = f", ×{r['ratio_display']}" if r.get("ratio_display") else ""
+        cls_txt = f" [{classification}{ratio_txt}]" if classification else ""
+        ax.text(
+            min(all_vals) / 4.5, i, f"{r['Substancja']}{cls_txt}",
+            fontsize=f_lbl, va="center", ha="right",
+        )
+
+    legend_elements = [
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=MIC_COLOR, markeredgecolor="black", markersize=9, label="MIC"),
+        Line2D([0], [0], marker="o", color="w", markerfacecolor=MBC_COLOR, markeredgecolor="black", markersize=9, label="MBC"),
+        Line2D([0], [0], color=CLASSIFICATION_COLORS["bakteriobójcze"], lw=3, label="bakteriobójcze"),
+        Line2D([0], [0], color=CLASSIFICATION_COLORS["bakteriostatyczne"], lw=3, label="bakteriostatyczne"),
+        Line2D([0], [0], color=CLASSIFICATION_COLORS["nieoznaczalny"], lw=2, linestyle="--", label="nieoznaczalny (MBC otwarte górnie)"),
+        Line2D([0], [0], color="black", lw=1, linestyle=":", alpha=0.6, label="próg d=2 (×4 MIC)"),
+        Line2D([0], [0], color="black", lw=1, linestyle="-", alpha=0.5, label="próg d=3 (×8 MIC)"),
+    ]
+    if has_errors:
+        legend_elements.append(
+            Line2D([0], [0], marker="X", color="w", markerfacecolor="red", markeredgecolor="black",
+                   markersize=10, label="błąd spójności (MBC<MIC)")
+        )
+    ax.legend(handles=legend_elements, loc="lower right", fontsize=max(7, f_lbl - 2), framealpha=0.92)
+
+    ax.set_yticks([])
+    ax.set_ylim(-0.8, len(rows) - 0.2)
+    _setup_log2_axis(ax, all_vals_with_margin)
+    ax.set_xlabel("Stężenie", fontsize=f_ttl)
+    ax.set_title(f"{bact}: odstęp MIC↔MBC per substancja", fontsize=f_ttl + 2, fontweight="bold")
+    fig.tight_layout()
+    return fig
