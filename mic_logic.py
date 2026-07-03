@@ -1332,3 +1332,106 @@ def summarize_mbc_mic_ratio(paired_results):
         "classification": classification, "ratio_display": f"{2 ** median_d:g}",
         "warning": MIC_LOW_N_BIO_WARNING if n_bio < 2 else None,
     }
+
+
+# ============================================================
+# TABELA ZBIORCZA + WIERSZE SZCZEGÓŁOWE (Faza finalna - eksport)
+# ============================================================
+#
+# Czysta budowa danych (bez matplotlib/reportlab) do użytku przez
+# mic_plotting.py (opcjonalnie) i reports.py (PDF/Excel) - nic tu nie jest
+# liczone od nowa, tylko spinane w tabelaryczny kształt z gotowych wyników
+# Faz 2-MBC.
+
+def build_mic_summary_rows(mic_grouped, mbc_grouped=None):
+    """
+    Tabela zbiorcza "do publikacji": jeden wiersz per (Bakteria, Substancja).
+    mic_grouped (wymagane) i mbc_grouped (opcjonalne) to wyniki
+    aggregate_all - gdy dana substancja nie ma MBC, kolumny MBC/iloraz są
+    puste ("n/d"), nie błędem.
+
+    Dla par obecnych w OBU zbiorach liczy iloraz przez
+    pair_mic_mbc_by_bio_rep + summarize_mbc_mic_ratio (Faza MBC, bez zmian).
+
+    Kolumna "Uwagi" zbiera WSZYSTKIE statusy/ostrzeżenia dotyczące danej
+    grupy w jeden czytelny tekst (n_bio=1 z MIC i/lub MBC, wykluczone
+    powtórzenia biologiczne, odczyty wymaga_weryfikacji, błędy spójności
+    MBC<MIC, klasyfikacje nieoznaczalne, niesparowane powtórzenia) - żaden
+    z tych sygnałów nie może być widoczny TYLKO w logu.
+    """
+    mbc_grouped = mbc_grouped or {}
+    rows = []
+    all_keys = sorted(set(mic_grouped.keys()) | set(mbc_grouped.keys()))
+    for key in all_keys:
+        bakteria, substancja = key
+        mic_entry = mic_grouped.get(key)
+        mbc_entry = mbc_grouped.get(key)
+        mic_summary = mic_entry["summary"] if mic_entry else None
+        mbc_summary = mbc_entry["summary"] if mbc_entry else None
+
+        warnings = []
+        if mic_summary and mic_summary.get("warning"):
+            warnings.append(f"MIC: {mic_summary['warning']}")
+        if mic_summary and mic_summary.get("n_bio_excluded"):
+            warnings.append(f"MIC: {mic_summary['n_bio_excluded']} powtórzenie(a) biologiczne bez wartości (wykluczone).")
+        if mic_summary and mic_summary.get("n_flagged"):
+            warnings.append(f"MIC: {mic_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
+        if mbc_summary and mbc_summary.get("warning"):
+            warnings.append(f"MBC: {mbc_summary['warning']}")
+        if mbc_summary and mbc_summary.get("n_bio_excluded"):
+            warnings.append(f"MBC: {mbc_summary['n_bio_excluded']} powtórzenie(a) biologiczne bez wartości (wykluczone).")
+        if mbc_summary and mbc_summary.get("n_flagged"):
+            warnings.append(f"MBC: {mbc_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
+
+        ratio_display, classification = None, None
+        if mic_entry and mbc_entry:
+            paired, unmatched = pair_mic_mbc_by_bio_rep(mic_entry["bio_results"], mbc_entry["bio_results"])
+            errors = [p for p in paired if p["ratio"]["status"] == "blad_spojnosci"]
+            if errors:
+                warnings.append(
+                    f"BŁĄD SPÓJNOŚCI w {len(errors)} powtórzeniu/powtórzeniach biologicznych (MBC<MIC) - "
+                    f"iloraz dla nich nie policzony, patrz szczegóły."
+                )
+            if unmatched:
+                warnings.append(f"{len(unmatched)} powtórzenie(a) biologiczne bez pary MIC/MBC (pominięte w ilorazie).")
+            if paired:
+                ratio_summary = summarize_mbc_mic_ratio(paired)
+                ratio_display = ratio_summary["ratio_display"]
+                classification = ratio_summary["classification"]
+                if classification == "nieoznaczalny":
+                    warnings.append("Klasyfikacja MBC/MIC nieoznaczalna - granica obejmuje próg, patrz iloraz.")
+                if ratio_summary.get("warning"):
+                    warnings.append(f"Iloraz MBC/MIC: {ratio_summary['warning']}")
+
+        rows.append({
+            "Bakteria": bakteria, "Substancja": substancja,
+            "n_bio_MIC": mic_summary["n_bio"] if mic_summary else 0,
+            "MIC": mic_summary["median"]["display"] if mic_summary else "n/d",
+            "n_bio_MBC": mbc_summary["n_bio"] if mbc_summary else 0,
+            "MBC": mbc_summary["median"]["display"] if mbc_summary else "n/d",
+            "Iloraz_MBC_MIC": ratio_display or "n/d",
+            "Klasyfikacja": classification or "n/d",
+            "Uwagi": "; ".join(warnings) if warnings else "",
+        })
+    return rows
+
+
+def build_mic_replicate_rows(mic_grouped, mbc_grouped=None):
+    """
+    Wiersze SZCZEGÓŁOWE (jeden na powtórzenie biologiczne) do arkusza
+    Excela - odpowiednik "Dane Surowe" z modułu dyfuzji, ale już na
+    poziomie powtórzeń biologicznych (po agregacji technicznej, Faza 3),
+    z osobną kolumną Typ (MIC/MBC) i statusem/powodem widocznym wprost.
+    """
+    mbc_grouped = mbc_grouped or {}
+    rows = []
+    for typ, grouped in (("MIC", mic_grouped), ("MBC", mbc_grouped)):
+        for (bakteria, substancja), entry in grouped.items():
+            for b in entry["bio_results"]:
+                wartosc = format_mic_display(b["mic_value"], b["censored"]) if b["mic_value"] is not None else "n/d"
+                rows.append({
+                    "Bakteria": bakteria, "Substancja": substancja, "Typ": typ,
+                    "Rep_biologiczna": b.get("Rep_biologiczna"),
+                    "Wartosc": wartosc, "Status": b.get("status"), "Powod": b.get("reason", ""),
+                })
+    return rows
