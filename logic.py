@@ -1,15 +1,11 @@
 import pandas as pd
-import numpy as np
 from scipy import stats
 import scikit_posthocs as sp
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import utils
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from config import (
-    DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, MIC_MIN_R2,
-    INTERNAL_SUBSTANCE_COL, INTERNAL_CONC_COL, INTERNAL_UNIT_COL,
-)
+from config import ALPHA, COL_GROUP, COL_MEASUREMENT
 
 class StatsEngine:
     def __init__(self):
@@ -180,136 +176,3 @@ class StatsEngine:
         
         explained_variance = pca.explained_variance_ratio_
         return (pca_df, explained_variance), None
-
-    def estimate_mic(self, df, selected_substances, target_diameter=DISC_DIAMETER_MM):
-        """
-        Estimates MIC for each substance using Log-Linear Regression.
-        Model: Diameter = a + b * ln(Concentration)
-        MIC = exp((Target - a) / b)
-
-        Every substance in `selected_substances` gets an entry in the
-        returned dict, even when no reliable MIC could be computed -
-        "Status"/"Reason" always explain what happened (never a silent
-        omission). A numeric "MIC" is only populated when the log-linear
-        fit meets MIC_MIN_R2; "Extrapolated" flags an estimate that falls
-        outside the actually-tested concentration range.
-        """
-        results = {}
-
-        # Nowy format: kolumna Stężenie jest ustrukturyzowana (liczbowa) i
-        # powiązana z substancją wprost przez INTERNAL_SUBSTANCE_COL - używamy
-        # jej bezpośrednio, bez parsowania tekstu nazwy grupy. To eliminuje
-        # ryzyko pomylenia kodu substancji (np. "55-156") ze stężeniem.
-        has_structured_conc = (
-            INTERNAL_SUBSTANCE_COL in df.columns
-            and INTERNAL_CONC_COL in df.columns
-            and df[INTERNAL_CONC_COL].notna().any()
-        )
-
-        for sub in selected_substances:
-            x_concs = []
-            y_diams = []
-            valid_unit = ""
-
-            if has_structured_conc:
-                # 1. Nowy format: stężenie WPROST z kolumny Stezenie.
-                sub_df = df[(df[INTERNAL_SUBSTANCE_COL] == sub) & df[INTERNAL_CONC_COL].notna()]
-                for _, row in sub_df.iterrows():
-                    conc = row[INTERNAL_CONC_COL]
-                    if conc > 0:
-                        x_concs.append(conc)
-                        y_diams.append(row[COL_MEASUREMENT])
-                        valid_unit = row[INTERNAL_UNIT_COL]
-            else:
-                # 1. Stary format: musimy wyciągnąć stężenia z nazw grup
-                # (utils.parse_concentration) - zachowanie bez zmian.
-                sub_df = df[df[COL_GROUP].str.contains(sub, regex=False)].copy() # Wstępne filtrowanie, ale dokładne parsowanie niżej
-
-                for g in sub_df[COL_GROUP].unique():
-                    parsed_sub, conc, unit = utils.parse_concentration(g)
-                    # Sprawdź czy to ta substancja (bo contains jest luźne)
-                    if parsed_sub and sub in parsed_sub and conc is not None:
-                        # Pobierz wszystkie pomiary dla tej grupy
-                        measurements = sub_df[sub_df[COL_GROUP] == g][COL_MEASUREMENT].values
-                        for m in measurements:
-                            if conc > 0:
-                                x_concs.append(conc)
-                                y_diams.append(m)
-                                valid_unit = unit
-
-            n_points = len(set(x_concs))
-            if n_points < 3:
-                results[sub] = {
-                    "MIC": None, "Unit": valid_unit, "R2": None, "Slope": None, "Intercept": None,
-                    "Status": "za_malo_stezen", "Extrapolated": False, "ConcRange": None,
-                    "Reason": f"Za mało unikalnych stężeń do regresji (znaleziono {n_points}, wymagane min. 3).",
-                }
-                continue
-
-            # 2. Regresja Liniowa na logarytmach
-            try:
-                log_x = np.log(x_concs)
-                slope, intercept, r_value, p_value, std_err = stats.linregress(log_x, y_diams)
-                r2 = r_value ** 2
-                conc_range = (min(x_concs), max(x_concs))
-            # Skip this substance on degenerate regression input: linregress
-            # raises ValueError on non-finite / zero-variance data, TypeError
-            # guards non-numeric slipping past parse_concentration, LinAlgError
-            # for any underlying solver failure. KeyboardInterrupt / SystemExit
-            # still propagate correctly.
-            except (ValueError, TypeError, np.linalg.LinAlgError) as e:
-                results[sub] = {
-                    "MIC": None, "Unit": valid_unit, "R2": None, "Slope": None, "Intercept": None,
-                    "Status": "blad_regresji", "Extrapolated": False, "ConcRange": None,
-                    "Reason": f"Regresja nie powiodła się ({type(e).__name__}: {e}).",
-                }
-                continue
-
-            if slope <= 0:
-                # Oczekujemy że strefa rośnie ze stężeniem - ujemny/zerowy
-                # współczynnik kierunkowy nie ma sensu biologicznego.
-                results[sub] = {
-                    "MIC": None, "Unit": valid_unit, "R2": r2, "Slope": slope, "Intercept": intercept,
-                    "Status": "ujemny_slope", "Extrapolated": False, "ConcRange": conc_range,
-                    "Reason": f"Strefa nie rośnie ze stężeniem (nachylenie={slope:.3f} <= 0) - brak sensu biologicznego.",
-                }
-                continue
-
-            # 3. Oblicz MIC: target = a + b * ln(MIC) => ln(MIC) = (target - a) / b
-            ln_mic = (target_diameter - intercept) / slope
-            mic = np.exp(ln_mic)
-            extrapolated = not (conc_range[0] <= mic <= conc_range[1])
-
-            if r2 < MIC_MIN_R2:
-                results[sub] = {
-                    "MIC": None, "Unit": valid_unit, "R2": r2, "Slope": slope, "Intercept": intercept,
-                    "Status": "slabe_dopasowanie", "Extrapolated": extrapolated, "ConcRange": conc_range,
-                    "Reason": (
-                        f"MIC odrzucone: słabe dopasowanie regresji (R²={r2:.2f} < próg {MIC_MIN_R2:g}). "
-                        f"Wartość {mic:.4g} {valid_unit} nie jest wiarygodna i nie jest raportowana."
-                    ),
-                }
-                continue
-
-            if extrapolated:
-                reason = (
-                    f"UWAGA: MIC ({mic:.4g} {valid_unit}) leży POZA przetestowanym zakresem stężeń "
-                    f"({conc_range[0]:g}-{conc_range[1]:g} {valid_unit}) - to ekstrapolacja poza zbadane dane, "
-                    f"traktuj wyłącznie orientacyjnie."
-                )
-            else:
-                reason = "Dopasowanie w normie, MIC mieści się w przetestowanym zakresie stężeń."
-
-            results[sub] = {
-                "MIC": mic,
-                "Unit": valid_unit,
-                "R2": r2,
-                "Slope": slope,
-                "Intercept": intercept,
-                "Status": "ekstrapolacja" if extrapolated else "ok",
-                "Extrapolated": extrapolated,
-                "ConcRange": conc_range,
-                "Reason": reason,
-            }
-
-        return results

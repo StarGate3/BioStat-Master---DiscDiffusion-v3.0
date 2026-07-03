@@ -40,6 +40,10 @@ class App(ctk.CTk):
         self.stats_summary = None
         self.low_n_bio_warning = False
 
+        # --- ROUTER WIELOARKUSZOWY (MIC/MBC) ---
+        self.route = None
+        self.availability = {}
+
         # --- FIGURY ---
         self.figures = {
             'bar': None, 'heat': None, 'pvalue': None,
@@ -153,14 +157,23 @@ class App(ctk.CTk):
         # Prawy Panel
         self.right_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
         self.right_frame.grid(row=0, column=2, sticky="nsew")
-        self.right_frame.grid_rowconfigure(1, weight=1)
-        ctk.CTkLabel(self.right_frame, text="Wybór próbek:", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=(10, 5))
+        self.right_frame.grid_rowconfigure(3, weight=1)
+
+        # Dostępność analiz per szczep (nad "Wybór próbek")
+        ctk.CTkLabel(self.right_frame, text="Dostępność analiz:", font=ctk.CTkFont(weight="bold")).grid(row=0, column=0, padx=10, pady=(10, 0))
+        self.lbl_availability = ctk.CTkLabel(
+            self.right_frame, text="Wczytaj plik, aby zobaczyć dostępność.",
+            justify="left", anchor="w", font=("Consolas", 11), wraplength=180,
+        )
+        self.lbl_availability.grid(row=1, column=0, padx=10, pady=(0, 10), sticky="w")
+
+        ctk.CTkLabel(self.right_frame, text="Wybór próbek:", font=ctk.CTkFont(weight="bold")).grid(row=2, column=0, padx=10, pady=(10, 5))
         self.scroll_samples = ctk.CTkScrollableFrame(self.right_frame, label_text="Dostępne grupy", height=600)
-        self.scroll_samples.grid(row=1, column=0, padx=10, pady=5, sticky="nsew")
+        self.scroll_samples.grid(row=3, column=0, padx=10, pady=5, sticky="nsew")
         self.btn_select_all = ctk.CTkButton(self.right_frame, text="Zaznacz wszystko", width=100, command=self.select_all)
-        self.btn_select_all.grid(row=2, column=0, padx=10, pady=5)
+        self.btn_select_all.grid(row=4, column=0, padx=10, pady=5)
         self.btn_deselect_all = ctk.CTkButton(self.right_frame, text="Odznacz wszystko", width=100, fg_color="gray", command=self.deselect_all)
-        self.btn_deselect_all.grid(row=3, column=0, padx=10, pady=(5, 20))
+        self.btn_deselect_all.grid(row=5, column=0, padx=10, pady=(5, 20))
 
     # ==================== LOGIKA POMOCNICZA ====================
     def log(self, text):
@@ -172,9 +185,13 @@ class App(ctk.CTk):
         path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx *.xls")])
         if not path:
             return
+        self._load_from_path(path)
 
+    def _load_from_path(self, path):
+        """Rdzeń wczytywania wydzielony z load_file, żeby dało się go wywołać
+        (np. w testach) bez przechodzenia przez natywne okno dialogowe."""
         try:
-            df = utils.read_excel_any_format(path)
+            route = utils.route_workbook(path)
         except FileNotFoundError:
             messagebox.showerror("Błąd", "Plik nie istnieje lub został usunięty.")
             return
@@ -188,46 +205,95 @@ class App(ctk.CTk):
             messagebox.showerror("Błąd", f"Nie udało się wczytać pliku: {e}")
             return
 
-        df_internal, bacteria_col, rejected, struct_errors, format_info = utils.validate_and_normalize(df)
-
-        if struct_errors:
-            body = "Plik nie może zostać wczytany z powodu następujących problemów:\n\n" + "\n".join(struct_errors)
-            messagebox.showerror("Błąd walidacji pliku", body)
+        if route["errors"]:
+            messagebox.showerror("Brak danych do analizy", "\n".join(route["errors"]))
             return
 
-        total_rows = len(df)
-        if rejected:
-            if len(df_internal) == 0:
-                messagebox.showerror(
-                    "Brak poprawnych danych",
-                    f"Wczytano {total_rows} wierszy. Wszystkie zostały odrzucone podczas walidacji — brak danych do analizy."
-                )
+        # --- Ścieżka dyfuzji (dotychczasowa logika, bez zmian) - tylko gdy
+        # router wykrył obecny i niepusty arkusz Dane_dyfuzja / stary format ---
+        df_internal, bacteria_col, format_info = None, None, {}
+        if route["diffusion_raw_df"] is not None:
+            df_internal, bacteria_col, rejected, struct_errors, format_info = utils.validate_and_normalize(route["diffusion_raw_df"])
+
+            if struct_errors:
+                body = "Arkusz dyfuzji nie może zostać wczytany z powodu następujących problemów:\n\n" + "\n".join(struct_errors)
+                messagebox.showerror("Błąd walidacji pliku", body)
                 return
-            max_show = 15
-            shown_lines = [f"Wiersz {n}: {reason}" for n, reason in rejected[:max_show]]
-            if len(rejected) > max_show:
-                shown_lines.append(f"... oraz {len(rejected) - max_show} więcej.")
-            body = (
-                f"Wczytano {total_rows} wierszy. Odrzucono {len(rejected)}:\n\n"
-                + "\n".join(shown_lines)
-                + f"\n\nPozostało {len(df_internal)} wierszy do analizy."
-            )
-            messagebox.showwarning("Odrzucono nieprawidłowe wiersze", body)
+
+            total_rows = len(route["diffusion_raw_df"])
+            if rejected:
+                if len(df_internal) == 0:
+                    messagebox.showerror(
+                        "Brak poprawnych danych",
+                        f"Wczytano {total_rows} wierszy dyfuzji. Wszystkie zostały odrzucone podczas walidacji — brak danych do analizy."
+                    )
+                    return
+                max_show = 15
+                shown_lines = [f"Wiersz {n}: {reason}" for n, reason in rejected[:max_show]]
+                if len(rejected) > max_show:
+                    shown_lines.append(f"... oraz {len(rejected) - max_show} więcej.")
+                body = (
+                    f"Wczytano {total_rows} wierszy dyfuzji. Odrzucono {len(rejected)}:\n\n"
+                    + "\n".join(shown_lines)
+                    + f"\n\nPozostało {len(df_internal)} wierszy do analizy."
+                )
+                messagebox.showwarning("Odrzucono nieprawidłowe wiersze", body)
 
         try:
+            self.route = route
+            self.availability = route["availability"]
             self.df = df_internal
             self.col_bact_name = bacteria_col
             self.lbl_file.configure(text=os.path.basename(path), text_color="white")
-            bacts = list(self.df[bacteria_col].unique())
+
+            bacts = sorted(self.availability.keys())
             self.combo_bact.configure(values=bacts)
             self.combo_bact.set(bacts[0])
             self.on_bacteria_change(bacts[0])
-            is_new_format = format_info.get('has_type') or format_info.get('has_conc') or format_info.get('has_reps')
-            fmt_label = "NOWY (Typ/Stężenie/Powtórzenia)" if is_new_format else "STARY"
-            self.log(f"Wczytano plik (format: {fmt_label}). Znaleziono szczepy: {bacts}")
+
+            self.clear_log()
+            sheets_found = [s for s, present in route["sheets_present"].items() if present]
+            self.log(f"Wczytano plik. Arkusze danych znalezione: {sheets_found or '(brak - stary jednoarkuszowy format)'}")
+            self._log_availability_map()
+            for w in route["warnings"]:
+                self.log(f"UWAGA: {w}")
+            if route["diffusion_raw_df"] is not None:
+                is_new_format = format_info.get('has_type') or format_info.get('has_conc') or format_info.get('has_reps')
+                fmt_label = "NOWY (Typ/Stężenie/Powtórzenia)" if is_new_format else "STARY"
+                self.log(f"Dane dyfuzji: format {fmt_label}.")
         except Exception as e: messagebox.showerror("Błąd", f"Nie udało się wczytać: {e}")
 
+    def _format_availability_line(self, strain):
+        a = self.availability.get(strain, {})
+        mark = lambda ok: "✓" if ok else "✗"
+        return f"{strain}: dyfuzja {mark(a.get('dyfuzja'))}, MIC {mark(a.get('mic'))}, MBC {mark(a.get('mbc'))}"
+
+    def _log_availability_map(self):
+        self.log("Dostępność analiz per szczep:")
+        for strain in sorted(self.availability.keys()):
+            self.log(f"  {self._format_availability_line(strain)}")
+        lines = [self._format_availability_line(s) for s in sorted(self.availability.keys())]
+        self.lbl_availability.configure(text="\n".join(lines) if lines else "Brak danych.")
+
     def on_bacteria_change(self, selected_bact):
+        avail = self.availability.get(selected_bact, {})
+        if not avail.get('dyfuzja', False):
+            # Ten szczep ma dane tylko dla MIC i/lub MBC (albo router go w ogóle
+            # nie widział w arkuszu dyfuzji) - analiza dyfuzji jest dla niego
+            # niedostępna, więc czyścimy panel zamiast pokazywać mylące
+            # "niejednoznaczna referencja".
+            for cb in self.checkboxes: cb.destroy()
+            self.checkboxes = []
+            self.sample_vars = {}
+            self.combo_ref.configure(values=["..."])
+            self.combo_ref.set("...")
+            self.log(
+                f"Szczep '{selected_bact}': brak danych z testu dyfuzji krążkowej w tym pliku "
+                f"(dostępne: MIC {'✓' if avail.get('mic') else '✗'}, MBC {'✓' if avail.get('mbc') else '✗'}). "
+                f"Analiza dyfuzji jest dla niego niedostępna."
+            )
+            return
+
         if self.df is None: return
         try:
             all_groups = sorted(self.df[COL_GROUP].unique(), key=utils.smart_sort_key)
@@ -477,6 +543,15 @@ Error bars represent standard deviation. This overview highlights the differenti
     def run_analysis(self):
         if self.df is None: return
         bact = self.combo_bact.get()
+
+        if not self.availability.get(bact, {}).get('dyfuzja', False):
+            messagebox.showerror(
+                "Brak danych dyfuzji",
+                f"Szczep '{bact}' nie ma danych z testu dyfuzji krążkowej w tym pliku.\n\n"
+                "Wybierz szczep, dla którego ta analiza jest dostępna (patrz panel 'Dostępność analiz')."
+            )
+            return
+
         method = self.combo_method.get()
         ref_group = self.combo_ref.get()
         if method == "None": method = None
@@ -521,7 +596,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.export_data_raw = df_run
 
         # 2b. AGREGACJA POWTÓRZEŃ TECHNICZNYCH (Delegacja)
-        # Testy istotności, post-hoc, MIC i wykresy statystyczne liczą się na
+        # Testy istotności, post-hoc i wykresy statystyczne liczą się na
         # średnich BIOLOGICZNYCH (n_bio), nie na surowych wierszach - inaczej
         # powtórzenia techniczne liczyłyby się jako niezależne obserwacje
         # (pseudoreplikacja, zawyżona moc / zaniżone p-value).
@@ -593,22 +668,8 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.display_plot(lambda: self.plotter.draw_heatmap(df_bio, bact), self.tab_heatmap, 'heat')
         self.display_plot(lambda: self.plotter.draw_pvalue_heatmap(self.export_stats_posthoc, bact), self.tab_pvalue, 'pvalue')
 
-        # MIC ESTIMATION (na średnich biologicznych per stężenie)
-        unique_subs = utils.detect_selected_substances(df_bio, wybrane)
-
-        mic_results = self.stats_engine.estimate_mic(df_bio, unique_subs)
-        
-        if mic_results:
-            self.log("\n[4] Oszacowane MIC (Theoretical):")
-            for sub, res in mic_results.items():
-                if res['MIC'] is not None:
-                    flag = " ⚠ EKSTRAPOLACJA POZA ZBADANY ZAKRES" if res.get('Extrapolated') else ""
-                    self.log(f"{sub}: {res['MIC']:.3f} {res['Unit']} (R2={res['R2']:.2f}){flag}")
-                else:
-                    self.log(f"{sub}: MIC niedostępne - {res['Reason']}")
-
-        # Pass mic_results to draw_trend (na średnich biologicznych)
-        fig_trend, err = self.plotter.draw_trend(df_bio, bact, mic_data=mic_results)
+        # Wykres trendu dawka-odpowiedź (na średnich biologicznych)
+        fig_trend, err = self.plotter.draw_trend(df_bio, bact)
         if fig_trend:
              self.display_figure(fig_trend, self.tab_trend, 'trend')
         elif err:
