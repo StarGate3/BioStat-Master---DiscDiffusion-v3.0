@@ -1100,3 +1100,234 @@ def compare_mic_groups(groups, method="holm"):
                 layer2["correction_method"] = method
 
     return {"descriptions": descriptions, "pairwise": pairwise, "layer2": layer2}
+
+
+# ============================================================
+# ILORAZ MBC/MIC + KLASYFIKACJA (Faza MBC)
+# ============================================================
+#
+# Wszystko na RÓŻNICY INDEKSÓW ROZCIEŃCZEŃ d = log2(MBC) - log2(MIC)
+# (iloraz do wyświetlenia = 2**d). Cenzura obu wielkości jest reprezentowana
+# jako PRZEDZIAŁ [lo, hi] w log2 (None = nieskończoność w danym kierunku),
+# nie jako punkt - dzięki temu jeden spójny mechanizm obsługuje: obie
+# wartości dokładne, tylko MIC cenzurowane, tylko MBC cenzurowane, i obie
+# cenzurowane naraz, bez osobnych gałęzi kodu dla każdej kombinacji.
+
+def _endpoint_bounds(result):
+    """
+    (lo, hi) w log2 dla POJEDYNCZEGO wyniku MIC albo MBC (ten sam kształt
+    dict: 'mic_value'/'censored'). None oznacza nieskończoność w danym
+    kierunku:
+      - dokładny:        (log2(v), log2(v))
+      - censored='low'  (<=v): (None, log2(v))   - "co najwyżej v"
+      - censored='high' (>v):  (log2(v), None)   - "więcej niż v"
+    """
+    log2_val = math.log2(result["mic_value"])
+    if result["censored"] == "low":
+        return (None, log2_val)
+    if result["censored"] == "high":
+        return (log2_val, None)
+    return (log2_val, log2_val)
+
+
+def _format_ratio(d_exact, d_lo, d_hi):
+    """Reprezentacja tekstowa ilorazu 2**d - NIGDY liczba bez prefiksu ≥/≤
+    gdy d nie jest dokładne (patrz format_mic_display - ta sama zasada)."""
+    if d_exact is not None:
+        return f"{2 ** d_exact:g}"
+    lo_str = f"{2 ** d_lo:g}"
+    if d_hi is None:
+        return f"≥{lo_str}"
+    hi_str = f"{2 ** d_hi:g}"
+    if d_lo <= 0:
+        return f"≤{hi_str}"
+    return f"{lo_str}–{hi_str}"
+
+
+def compute_mbc_mic_ratio(mic_result, mbc_result):
+    """
+    Liczy d = log2(MBC) - log2(MIC) dla JEDNEGO sparowanego powtórzenia
+    (mic_result/mbc_result - dowolny poziom: wynik per-wiersz z Fazy 2 albo
+    per-bio-rep z Fazy 3, oba mają klucze 'mic_value'/'censored').
+
+    KONTROLA SPÓJNOŚCI (strukturalna, zawsze wykonywana jako pierwsza):
+    MBC nie może być mniejsze niż MIC. Wyrażona na PRZEDZIAŁACH: jeśli
+    górna granica MBC (mbc_hi) jest mniejsza niż dolna granica MIC (mic_lo),
+    to MBC<MIC jest PEWNE niezależnie od dokładnych wartości - błąd danych.
+    Ten JEDEN test pokrywa wszystkie wymagane w zadaniu "niemożliwe
+    kombinacje cenzury" jednym mechanizmem:
+      - MIC dokładne > MBC dokładne (prosty przypadek)
+      - MIC ">max_MIC" (mic_lo=max_MIC) razem z jakimkolwiek MBC, którego
+        górna granica < max_MIC (MIC ">max" "wymusza" MBC ">max" - inny
+        wynik MBC jest niespójny)
+      - MBC "<=min_MBC" (mbc_hi=min_MBC) razem z dokładnym MIC > min_MBC
+
+    Gdy spójne: d_lo/d_hi to najciaśniejsza możliwa granica na d, z
+    DOMYŚLNYM dolnym ograniczeniem d>=0 (bo MBC>=MIC jest wymuszone -
+    nawet gdy surowa cenzura nie daje żadnej dolnej granicy, biologia
+    i tak ją daje). Klasyfikacja:
+      - d_hi <= MBC_MIC_BACTERICIDAL_MAX_D (2)   -> "bakteriobójcze" PEWNE
+        (prawdziwe d nie może przekroczyć d_hi).
+      - d_lo >= MBC_MIC_BACTERIOSTATIC_MIN_D (3) -> "bakteriostatyczne" PEWNE
+        (prawdziwe d nie może być niższe niż d_lo).
+      - w przeciwnym razie: "nieoznaczalny" - granica [d_lo, d_hi] obejmuje
+        próg klasyfikacji, NIE zgadujemy który wariant jest prawdziwy.
+
+    Zwraca dict: status (ok/blad_spojnosci/nieoznaczalny/brak_danych),
+    d (float|None, tylko gdy dokładne), d_lo, d_hi (float|None),
+    classification (bakteriobójcze/bakteriostatyczne/nieoznaczalny/None),
+    ratio_display (str), reason (str).
+    """
+    if mic_result.get("mic_value") is None or mbc_result.get("mic_value") is None:
+        return {
+            "status": "brak_danych", "d": None, "d_lo": None, "d_hi": None,
+            "classification": None, "ratio_display": None,
+            "reason": "Brak wartości MIC i/lub MBC dla tego powtórzenia - iloraz nie policzony.",
+        }
+
+    mic_lo, mic_hi = _endpoint_bounds(mic_result)
+    mbc_lo, mbc_hi = _endpoint_bounds(mbc_result)
+
+    if mbc_hi is not None and mic_lo is not None and mbc_hi < mic_lo:
+        return {
+            "status": "blad_spojnosci", "d": None, "d_lo": None, "d_hi": None, "classification": None,
+            "reason": (
+                f"Niemożliwa kombinacja: MBC "
+                f"({format_mic_display(mbc_result['mic_value'], mbc_result['censored'])}) nie może być "
+                f"mniejsze niż MIC ({format_mic_display(mic_result['mic_value'], mic_result['censored'])}) "
+                f"dla tego samego powtórzenia - błąd danych. Iloraz nie policzony."
+            ),
+        }
+
+    d_lo = 0.0
+    if mbc_lo is not None and mic_hi is not None:
+        d_lo = max(d_lo, mbc_lo - mic_hi)
+    d_hi = None if (mbc_hi is None or mic_lo is None) else (mbc_hi - mic_lo)
+
+    d_lo = round(d_lo, 9)
+    if d_hi is not None:
+        d_hi = round(d_hi, 9)
+    d_exact = d_lo if (d_hi is not None and d_lo == d_hi) else None
+
+    if d_hi is not None and d_hi <= MBC_MIC_BACTERICIDAL_MAX_D:
+        classification = "bakteriobójcze"
+        status = "ok"
+        reason = (
+            f"d <= {d_hi:g} <= {MBC_MIC_BACTERICIDAL_MAX_D:g} (pewne, niezależnie od cenzury) "
+            f"-> bakteriobójcze."
+        )
+    elif d_lo >= MBC_MIC_BACTERIOSTATIC_MIN_D:
+        classification = "bakteriostatyczne"
+        status = "ok"
+        reason = (
+            f"d >= {d_lo:g} >= {MBC_MIC_BACTERIOSTATIC_MIN_D:g} (pewne, niezależnie od cenzury) "
+            f"-> bakteriostatyczne."
+        )
+    else:
+        classification = "nieoznaczalny"
+        status = "nieoznaczalny"
+        reason = (
+            f"Granica d obejmuje próg klasyfikacji ({MBC_MIC_BACTERICIDAL_MAX_D:g}-"
+            f"{MBC_MIC_BACTERIOSTATIC_MIN_D:g}) - nie można jednoznacznie sklasyfikować bez zgadywania. "
+            f"Zebrane dane pozwalają jedynie ograniczyć d do przedziału pokazanego w ratio_display."
+        )
+
+    return {
+        "status": status, "d": d_exact, "d_lo": d_lo, "d_hi": d_hi,
+        "classification": classification, "ratio_display": _format_ratio(d_exact, d_lo, d_hi),
+        "reason": reason,
+    }
+
+
+def pair_mic_mbc_by_bio_rep(mic_bio_results, mbc_bio_results):
+    """
+    Paruje wyniki biologiczne MIC i MBC (z aggregate_technical_to_biological,
+    osobno dla każdego typu) po (Bakteria, Substancja, Rep_biologiczna).
+
+    Zwraca (paired, unmatched):
+      - paired: lista {Bakteria, Substancja, Rep_biologiczna, mic, mbc, ratio}
+        dla powtórzeń obecnych w OBU zbiorach (ratio = compute_mbc_mic_ratio(...)).
+      - unmatched: lista (klucz, powód) dla powtórzeń biologicznych obecnych
+        tylko w jednym z dwóch zbiorów - nie da się policzyć ilorazu bez obu
+        wartości, więc są pominięte z jawnym powodem, nie po cichu.
+    """
+    mic_by_key = {(b["Bakteria"], b["Substancja"], b["Rep_biologiczna"]): b for b in mic_bio_results}
+    mbc_by_key = {(b["Bakteria"], b["Substancja"], b["Rep_biologiczna"]): b for b in mbc_bio_results}
+
+    paired, unmatched = [], []
+    for key in sorted(set(mic_by_key) | set(mbc_by_key)):
+        mic_b, mbc_b = mic_by_key.get(key), mbc_by_key.get(key)
+        if mic_b is None or mbc_b is None:
+            unmatched.append((key, "brak wyniku MIC dla tego powtórzenia" if mic_b is None else "brak wyniku MBC dla tego powtórzenia"))
+            continue
+        paired.append({
+            "Bakteria": key[0], "Substancja": key[1], "Rep_biologiczna": key[2],
+            "mic": mic_b, "mbc": mbc_b, "ratio": compute_mbc_mic_ratio(mic_b, mbc_b),
+        })
+    return paired, unmatched
+
+
+def _representative_d(ratio_result):
+    """
+    Punkt reprezentatywny d dla jednego sparowanego powtórzenia biologicznego,
+    do dalszej agregacji (mediana grupowa). Uproszczenie świadome: gdy
+    klasyfikacja per-powtórzenie rozstrzygnęła się dzięki granicy (nie
+    dokładnej wartości), używamy TEJ granicy jako reprezentanta (d_hi dla
+    "bakteriobójcze", d_lo dla "bakteriostatyczne") - to nadal wartość, co do
+    której wiemy PEWNIE, po której stronie progu leży. "nieoznaczalny" i
+    "blad_spojnosci"/"brak_danych" NIE mają defensywnej reprezentacji -
+    zwracają None i są wykluczone z mediany grupowej (zliczone osobno).
+    """
+    if ratio_result["status"] in ("blad_spojnosci", "brak_danych"):
+        return None
+    if ratio_result["d"] is not None:
+        return ratio_result["d"]
+    if ratio_result["classification"] == "bakteriobójcze":
+        return ratio_result["d_hi"]
+    if ratio_result["classification"] == "bakteriostatyczne":
+        return ratio_result["d_lo"]
+    return None
+
+
+def summarize_mbc_mic_ratio(paired_results):
+    """
+    Podsumowanie ZBIORCZE ilorazu MBC/MIC dla jednej grupy (Bakteria x
+    Substancja): mediana d PO POWTÓRZENIACH BIOLOGICZNYCH (ta sama reguła
+    high-median co w Fazie 3/Warstwie 1 Fazy 4 - reużyta wprost,
+    _high_median_entry), i klasyfikacja na tej medianie.
+
+    paired_results: lista z pair_mic_mbc_by_bio_rep dla JEDNEJ grupy.
+
+    Zwraca dict: n_bio (liczba powtórzeń z rozstrzygalnym d),
+    n_bio_excluded (nieoznaczalne/błędne, wykluczone z mediany),
+    median_d, classification, ratio_display, warning (n_bio<2, spójnie z
+    resztą programu).
+    """
+    reps_with_d = [(p, _representative_d(p["ratio"])) for p in paired_results]
+    usable = [(p, d) for p, d in reps_with_d if d is not None]
+    n_bio_excluded = len(paired_results) - len(usable)
+
+    if not usable:
+        return {
+            "n_bio": 0, "n_bio_excluded": n_bio_excluded, "median_d": None,
+            "classification": None, "ratio_display": None,
+            "warning": "Brak żadnego powtórzenia z rozstrzygalną wartością d - nie można podać klasyfikacji zbiorczej.",
+        }
+
+    entries = [{"log2": d, "censored": None, "source": p} for p, d in usable]
+    median_entry = _high_median_entry(entries)
+    median_d = round(median_entry["log2"], 9)
+
+    if median_d <= MBC_MIC_BACTERICIDAL_MAX_D:
+        classification = "bakteriobójcze"
+    elif median_d >= MBC_MIC_BACTERIOSTATIC_MIN_D:
+        classification = "bakteriostatyczne"
+    else:
+        classification = "nieoznaczalny"
+
+    n_bio = len(usable)
+    return {
+        "n_bio": n_bio, "n_bio_excluded": n_bio_excluded, "median_d": median_d,
+        "classification": classification, "ratio_display": f"{2 ** median_d:g}",
+        "warning": MIC_LOW_N_BIO_WARNING if n_bio < 2 else None,
+    }
