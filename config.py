@@ -188,6 +188,65 @@ tryb ma pierwszeństwo, gdy oba są obecne dla tego samego szczepu+substancji,
 jest odłożone do kolejnej fazy (patrz utils.route_workbook 'warnings')."""
 
 # ============================================================
+# MIC ZE STUDZIENEK (Faza 2: silnik per-wiersz, arkusze MIC_wizualny/MIC_OD)
+# ============================================================
+
+COL_RUN: str = "Przebieg"
+COL_STEZ_S1: str = "Stez_S1"
+COL_DILUTION_FACTOR: str = "Wsp_rozc"
+"""Kolumny meta wspólne dla MIC_wizualny/MIC_OD/MBC_posiew. Bakteria/
+Substancja/Typ/Jednostka/Rep_biologiczna/Rep_techniczna używają dokładnie
+tych samych nazw i stałych co arkusz Dane_dyfuzja (COL_SUBSTANCE, COL_TYPE,
+COL_UNIT, COL_REP_BIO, COL_REP_TECH) - te schematy dzielą nazewnictwo."""
+
+WELL_COUNT: int = 10
+WELL_COLUMNS: tuple = tuple(f"S{i}" for i in range(1, WELL_COUNT + 1))
+"""Nazwy kolumn studzienek S1..S10. S1 = najwyższe testowane stężenie;
+stężenie studzienki n = Stez_S1 / (Wsp_rozc ** (n-1)) - malejący szereg
+rozcieńczeń w kolejności S1->S10."""
+
+WELL_STATUS_GROWTH: str = "wzrost"
+WELL_STATUS_NO_GROWTH: str = "brak"
+"""Rozpoznawane (case-insensitive, po przycięciu białych znaków) wartości
+tekstowe studzienek w arkuszu MIC_wizualny."""
+
+MIC_OD_GROWTH_THRESHOLD: float = 0.10
+"""Próg względny odróżniający "wzrost" od "brak" w MIC_OD:
+procent_wzrostu = (OD_studzienki - tło) / (OD_kontroli_wzrostu - tło);
+studzienka = "brak", gdy procent_wzrostu < próg. 10% to standardowy,
+konserwatywny próg spotykany w kolorymetrycznych/OD-owych odczytach
+wzrostu (odcina szum odczytu i nieswoiste zmętnienie, nie odcina
+częściowo zahamowanego, ale realnie rosnącego inokulum)."""
+
+MIC_OD_MIN_GROWTH_SIGNAL: float = 0.10
+"""Minimalna wymagana różnica (Kontrola_wzrostu - Kontrola_jalowosci) w
+jednostkach OD, żeby uznać przebieg za ważny. Typowy odczyt OD pustej/
+jałowej studzienki mieści się w szumie rzędu 0.02-0.05 (błąd czytnika
+płytek); różnica poniżej 0.10 OD oznacza, że albo kontrola wzrostu
+realnie nie urosła, albo kontrola jałowości jest podejrzanie wysoka
+(prawdopodobne skażenie) - w obu przypadkach różnicowanie wzrost/brak
+w tym przebiegu nie jest wiarygodne. To pragmatyczny, konfigurowalny
+próg bezpieczeństwa, nie wartość z walidowanego protokołu klinicznego."""
+
+COL_GROWTH_CONTROL: str = "Kontrola_wzrostu"
+COL_STERILITY_CONTROL: str = "Kontrola_jalowosci"
+COL_INOCULUM: str = "Inokulum_CFU_t0"
+"""Kolumny arkusza Kontrole (SHEET_CONTROLS), łączonego po COL_RUN. Dla MIC
+istotne są COL_GROWTH_CONTROL (OD kontroli wzrostu) i COL_STERILITY_CONTROL
+(OD kontroli jałowości, pełni rolę "tła"). COL_INOCULUM nie jest jeszcze
+używana w Fazie 2."""
+
+MIC_STATUS_OK: str = "ok"
+MIC_STATUS_INVALID_RUN: str = "nieważny"
+MIC_STATUS_NEEDS_REVIEW: str = "wymaga_weryfikacji"
+MIC_STATUS_CENSORED_LOW: str = "cenzurowane_dol"
+MIC_STATUS_CENSORED_HIGH: str = "cenzurowane_gora"
+MIC_STATUS_MISSING_CONTROLS: str = "brak_kontroli"
+"""Kody statusu wyniku MIC per wiersz (mic_logic.py). Każdy niepowodzenie/
+zastrzeżenie ma odpowiadający, czytelny "reason" - żaden status nie jest
+ciche (patrz mic_logic.compute_mic_for_row*)."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 
