@@ -542,3 +542,144 @@ def aggregate_technical_to_biological(row_results):
         "n_tech_total": n_tech_total, "n_tech_used": len(usable),
         "n_tech_excluded": n_tech_excluded, "n_flagged": n_flagged,
     }
+
+
+def _value_display(mic_value, censored, unit):
+    if mic_value is None:
+        return {"mic_value": None, "censored": None, "unit": unit, "display": "n/d"}
+    return {
+        "mic_value": mic_value, "censored": censored, "unit": unit,
+        "display": f"{format_mic_display(mic_value, censored)} {unit}".strip(),
+    }
+
+
+def summarize_mic_group(bio_results):
+    """
+    Podsumowanie OPISOWE jednej grupy (Bakteria x Substancja) na podstawie
+    powtórzeń BIOLOGICZNYCH (wyniki aggregate_technical_to_biological, jeden
+    na Rep_biologiczna). Nie porównuje grup między sobą - to kolejna faza
+    (testy istotności).
+
+    n_bio = liczba powtórzeń biologicznych Z WARTOŚCIĄ (bio-repy o statusie
+    MIC_STATUS_NO_DATA są wykluczone i zliczone osobno w n_bio_excluded).
+
+    Zwraca dict:
+      - Bakteria, Substancja, n_bio, n_bio_excluded, n_flagged (bio-repy
+        zbudowane na podstawie flagowanych odczytów technicznych)
+      - median: {mic_value, censored, unit, display} - ta sama reguła
+        high-median co przy agregacji technicznej->biologicznej (patrz jej
+        docstring), więc cenzura propaguje się tak samo automatycznie.
+      - range_min / range_max: {..., display} - skrajne wartości grupy,
+        KAŻDA z WŁASNĄ flagą cenzury (np. jeśli najniższa wartość w grupie
+        jest akurat "<=X", dolna granica zakresu to "<=X", nie "X").
+      - mode: lista {..., display} najczęstszych wartości (>=2 wystąpienia
+        po zaokrągleniu log2 do 6 miejsc), albo None gdy wszystkie różne.
+      - geo_mean: {mic_value, display} albo None - liczona TYLKO gdy ŻADNA
+        użyta wartość nie jest cenzurowana (średnia geometryczna wymaga
+        dokładnych liczb, nie da się jej sensownie policzyć z granicy typu
+        "przynajmniej"/"co najwyżej"); geo_mean_reason wyjaśnia brak.
+        NIGDY nie jest to średnia arytmetyczna - liczona na log2, potem 2**x.
+      - low_n_bio_warning (bool), warning (str | None) = MIC_LOW_N_BIO_WARNING
+        gdy n_bio<2 - wynik nadal jest liczony i pokazany, tylko oznaczony.
+    """
+    if not bio_results:
+        raise ValueError("summarize_mic_group: pusta lista wejściowa.")
+
+    first = bio_results[0]
+    bakteria, substancja, unit = first.get("Bakteria"), first.get("Substancja"), first.get("unit")
+
+    usable = [b for b in bio_results if b["mic_value"] is not None]
+    n_bio_excluded = len(bio_results) - len(usable)
+    n_flagged = sum(b.get("n_flagged", 0) for b in bio_results)
+
+    if not usable:
+        return {
+            "Bakteria": bakteria, "Substancja": substancja,
+            "n_bio": 0, "n_bio_excluded": n_bio_excluded, "n_flagged": n_flagged,
+            "median": _value_display(None, None, unit), "range_min": _value_display(None, None, unit),
+            "range_max": _value_display(None, None, unit), "mode": None,
+            "geo_mean": None, "geo_mean_reason": "Brak danych.",
+            "low_n_bio_warning": True, "warning": MIC_LOW_N_BIO_WARNING,
+        }
+
+    entries = [{"log2": math.log2(b["mic_value"]), "censored": b["censored"], "source": b} for b in usable]
+    n_bio = len(usable)
+
+    median_entry = _high_median_entry(entries)
+    min_entry = min(entries, key=lambda e: e["log2"])
+    max_entry = max(entries, key=lambda e: e["log2"])
+
+    rounded = [round(e["log2"], 6) for e in entries]
+    counts = {}
+    for v in rounded:
+        counts[v] = counts.get(v, 0) + 1
+    max_count = max(counts.values())
+    if max_count >= 2:
+        mode_keys = [v for v, c in counts.items() if c == max_count]
+        mode = [
+            _value_display(m["source"]["mic_value"], m["censored"], unit)
+            for m in (next(e for e in entries if round(e["log2"], 6) == k) for k in mode_keys)
+        ]
+    else:
+        mode = None
+
+    any_censored = any(e["censored"] is not None for e in entries)
+    if any_censored:
+        geo_mean = None
+        geo_mean_reason = (
+            "Nie liczono - grupa zawiera wartości cenzurowane (średnia geometryczna wymaga "
+            "wyłącznie dokładnych wartości, nie da się jej sensownie wyznaczyć z granicy typu "
+            "'≤'/'>'). Użyj mediany jako wartości centralnej."
+        )
+    else:
+        geo_log2_mean = sum(e["log2"] for e in entries) / len(entries)
+        geo_mean_value = 2 ** geo_log2_mean
+        geo_mean = {
+            "mic_value": geo_mean_value, "unit": unit,
+            "display": f"{format_mic_display(geo_mean_value, None)} {unit} (średnia geometryczna)".strip(),
+        }
+        geo_mean_reason = None
+
+    low_n_bio_warning = n_bio < 2
+
+    return {
+        "Bakteria": bakteria, "Substancja": substancja,
+        "n_bio": n_bio, "n_bio_excluded": n_bio_excluded, "n_flagged": n_flagged,
+        "median": _value_display(median_entry["source"]["mic_value"], median_entry["censored"], unit),
+        "range_min": _value_display(min_entry["source"]["mic_value"], min_entry["censored"], unit),
+        "range_max": _value_display(max_entry["source"]["mic_value"], max_entry["censored"], unit),
+        "mode": mode,
+        "geo_mean": geo_mean, "geo_mean_reason": geo_mean_reason,
+        "low_n_bio_warning": low_n_bio_warning,
+        "warning": MIC_LOW_N_BIO_WARNING if low_n_bio_warning else None,
+    }
+
+
+def aggregate_all(row_results):
+    """
+    Pełny potok Fazy 3: powtórzenia techniczne -> biologiczne -> podsumowanie
+    grupy (Bakteria x Substancja). Przyjmuje listę wyników z
+    process_mic_wizualny i/lub process_mic_od (można połączyć obie listy -
+    grupowanie jest po Bakteria+Substancja+Rep_biologiczna, więc oba tryby
+    współistnieją naturalnie jako kolejne "powtórzenia techniczne", gdyby
+    kiedyś tak wystąpiły w danych; rozstrzygnięcie pierwszeństwa
+    MIC_wizualny/MIC_OD zostało już zasygnalizowane w Fazie 1).
+
+    NIE porównuje grup między sobą (brak testów istotności) - tylko opisuje
+    każdą z osobna.
+
+    Zwraca dict {(Bakteria, Substancja): {"bio_results": [...], "summary": {...}}}.
+    """
+    by_tech_group = defaultdict(list)
+    for r in row_results:
+        key = (r.get("Bakteria"), r.get("Substancja"), r.get("Rep_biologiczna"))
+        by_tech_group[key].append(r)
+
+    bio_by_group = defaultdict(list)
+    for (bakteria, substancja, _rep_bio), tech_rows in by_tech_group.items():
+        bio_by_group[(bakteria, substancja)].append(aggregate_technical_to_biological(tech_rows))
+
+    return {
+        key: {"bio_results": bio_results, "summary": summarize_mic_group(bio_results)}
+        for key, bio_results in bio_by_group.items()
+    }
