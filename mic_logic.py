@@ -1389,8 +1389,8 @@ def build_mic_summary_rows(mic_grouped, mbc_grouped=None):
             errors = [p for p in paired if p["ratio"]["status"] == "blad_spojnosci"]
             if errors:
                 warnings.append(
-                    f"BŁĄD SPÓJNOŚCI w {len(errors)} powtórzeniu/powtórzeniach biologicznych (MBC<MIC) - "
-                    f"iloraz dla nich nie policzony, patrz szczegóły."
+                    f"BŁĄD SPÓJNOŚCI w {len(errors)} powtórzeniu/powtórzeniach biologicznych "
+                    f"(MBC mniejsze niż MIC) - iloraz dla nich nie policzony, patrz szczegóły."
                 )
             if unmatched:
                 warnings.append(f"{len(unmatched)} powtórzenie(a) biologiczne bez pary MIC/MBC (pominięte w ilorazie).")

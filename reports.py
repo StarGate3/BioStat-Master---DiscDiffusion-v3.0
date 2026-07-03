@@ -1,4 +1,6 @@
 import io
+from xml.sax.saxutils import escape as _xml_escape
+
 import pandas as pd
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -78,7 +80,14 @@ def _build_mic_mbc_elements(styles, f_norm, f_bold, mic_mbc_data):
                 str(row['n_bio_MBC']), row['MBC'], row['Iloraz_MBC_MIC'], row['Klasyfikacja'],
             ])
             if row.get('Uwagi'):
-                warning_lines.append(f"• <b>{row['Substancja']}</b>: {row['Uwagi']}")
+                # Uwagi/Substancja moga zawierac "<"/">" (notacja cenzury MIC/MBC,
+                # np. ">64", a wczesniej tez doslowne "MBC<MIC") - reportlab's
+                # Paragraph parsuje tekst jako mini-XML, wiec surowe "<"/">"
+                # rozwala parser ("unclosed tags"). Escapujemy DYNAMICZNA tresc,
+                # znaczniki <b>/</b> ktore sami dodajemy zostaja nietkniete.
+                safe_sub = _xml_escape(str(row['Substancja']))
+                safe_uwagi = _xml_escape(str(row['Uwagi']))
+                warning_lines.append(f"• <b>{safe_sub}</b>: {safe_uwagi}")
 
         t = Table(table_data, colWidths=[85, 38, 62, 38, 62, 58, 85])
         t.setStyle(TableStyle([
