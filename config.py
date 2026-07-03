@@ -126,6 +126,47 @@ tested concentration range is flagged separately (see estimate_mic),
 independent of this threshold."""
 
 # ============================================================
+# NOWY FORMAT WEJŚCIOWY (arkusz "Dane" z powtórzeniami bio/tech)
+# ============================================================
+
+NEW_FORMAT_SHEET_NAME: str = "Dane"
+"""Nazwa arkusza nowego szablonu wejściowego. Jeśli obecna w pliku, ten
+arkusz jest czytany zamiast domyślnego pierwszego arkusza; w przeciwnym
+razie loader cofa się do dotychczasowego zachowania (pierwszy/domyślny
+arkusz) - wsteczna zgodność ze starymi plikami bez tego arkusza."""
+
+COL_SUBSTANCE: str = 'Substancja'
+COL_CONCENTRATION: str = 'Stezenie'
+COL_UNIT: str = 'Jednostka'
+COL_TYPE: str = 'Typ'
+COL_REP_BIO: str = 'Rep_biologiczna'
+COL_REP_TECH: str = 'Rep_techniczna'
+"""Nagłówki kolumn nowego formatu wejściowego (arkusz 'Dane'). Każda z nich
+jest wykrywana i obsługiwana NIEZALEŻNIE - plik może mieć część, ale nie
+wszystkie z nich (np. Typ bez kolumn powtórzeń); braki są uzupełniane
+rozsądnymi wartościami domyślnymi, patrz utils.build_internal_representation."""
+
+TYPE_TESTED: str = 'Badana'
+TYPE_NEG_CONTROL: str = 'Kontrola negatywna'
+TYPE_POS_CONTROL: str = 'Kontrola pozytywna'
+VALID_TYPES: tuple = (TYPE_TESTED, TYPE_NEG_CONTROL, TYPE_POS_CONTROL)
+"""Dozwolone wartości kolumny Typ w nowym formacie."""
+
+INTERNAL_TYPE_COL: str = '_Typ'
+INTERNAL_SUBSTANCE_COL: str = '_Substancja'
+INTERNAL_CONC_COL: str = '_Stezenie'
+INTERNAL_UNIT_COL: str = '_Jednostka'
+INTERNAL_REP_BIO_COL: str = '_Rep_biologiczna'
+INTERNAL_REP_TECH_COL: str = '_Rep_techniczna'
+"""Kolumny WEWNĘTRZNE, nie pochodzą bezpośrednio z pliku wejściowego -
+zawsze obecne po przejściu przez utils.build_internal_representation,
+niezależnie od formatu źródłowego. Wypełnione NaN (Typ/Substancja/
+Stezenie/Jednostka) albo wartościami domyślnymi sygnalizującymi "cały
+wiersz danej grupy to jedno powtórzenie biologiczne" (Rep_biologiczna=1,
+Rep_techniczna=kolejny numer w obrębie grupy) gdy dany aspekt nie
+występuje w pliku wejściowym (stary format)."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 
