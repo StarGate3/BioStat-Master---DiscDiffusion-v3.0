@@ -27,9 +27,9 @@ from config import (
     WELL_STATUS_GROWTH, WELL_STATUS_NO_GROWTH, MIC_OD_GROWTH_THRESHOLD, MIC_OD_MIN_GROWTH_SIGNAL,
     MIC_OD_STERILITY_MAX,
     COL_SUBSTANCE, COL_TYPE, COL_UNIT, COL_REP_BIO, COL_REP_TECH,
-    COL_GROWTH_CONTROL, COL_STERILITY_CONTROL,
+    COL_GROWTH_CONTROL, COL_STERILITY_CONTROL, COL_INOCULUM,
     MIC_MEANINGFUL_DILUTION_DIFF, MIC_MAX_CENSORED_FRACTION, MIN_N_BIO_FOR_COMPARISON,
-    ALPHA,
+    ALPHA, MBC_REDUCTION_THRESHOLD, MBC_MIC_BACTERICIDAL_MAX_D, MBC_MIC_BACTERIOSTATIC_MIN_D,
 )
 
 
@@ -236,10 +236,11 @@ def classify_od_well(od_value, kontrola_wzrostu, kontrola_jalowosci, threshold=M
 
 def lookup_controls(controls_df, przebieg):
     """
-    Zwraca dict {Kontrola_wzrostu, Kontrola_jalowosci} (wartości SUROWE - mogą
-    być liczbą OD albo tekstem "wzrost"/"brak", patrz validate_run) dla danego
-    Przebiegu, albo None gdy controls_df jest None, Przebieg jest pusty, albo
-    nie ma dopasowania w arkuszu Kontrole.
+    Zwraca dict {Kontrola_wzrostu, Kontrola_jalowosci, Inokulum_CFU_t0}
+    (wartości SUROWE - Kontrola_wzrostu/jalowosci mogą być liczbą OD albo
+    tekstem "wzrost"/"brak", patrz validate_run; Inokulum_CFU_t0 używane
+    tylko przez MBC) dla danego Przebiegu, albo None gdy controls_df jest
+    None, Przebieg jest pusty, albo nie ma dopasowania w arkuszu Kontrole.
     """
     if controls_df is None or pd.isna(przebieg):
         return None
@@ -250,6 +251,7 @@ def lookup_controls(controls_df, przebieg):
     return {
         COL_GROWTH_CONTROL: row.get(COL_GROWTH_CONTROL),
         COL_STERILITY_CONTROL: row.get(COL_STERILITY_CONTROL),
+        COL_INOCULUM: row.get(COL_INOCULUM),
     }
 
 
@@ -437,6 +439,119 @@ def process_mic_od(df, controls_df):
     bact_col = utils.find_bacteria_column(df)
     well_cols = [c for c in WELL_COLUMNS if c in df.columns]
     return [_process_row(row, bact_col, well_cols, controls_df, "od") for _, row in df.iterrows()]
+
+
+# ============================================================
+# SILNIK ODCZYTU MBC (Faza MBC, arkusz MBC_posiew)
+# ============================================================
+#
+# Reużywa maksymalnie maszynerię MIC: compute_well_concentration,
+# compute_endpoint_from_wells (rdzeń algorytmu, bez zmian), lookup_controls
+# i validate_run (ważność przebiegu - dokładnie ta sama logika co dla MIC).
+# Jedyny naprawdę NOWY element to classify_mbc_well (redukcja CFU zamiast
+# wzrost/brak albo progu OD) i wymóg dodatkowej danej: CFU_t0 z arkusza
+# Kontrole.
+#
+# ZAŁOŻENIE (odnotowane tu jawnie, patrz też komunikat w wyniku): CFU
+# studzienki i CFU_t0 MUSZĄ być na tej samej podstawie objętościowej (to
+# samo rozcieńczenie/objętość posiewu) - redukcja jest liczona jako prosty
+# stosunek 1 - CFU_studzienki/CFU_t0, funkcja nie ma jak zweryfikować tej
+# spójności, dysponując wyłącznie liczbami.
+
+def classify_mbc_well(cfu_value, cfu_t0, threshold=MBC_REDUCTION_THRESHOLD):
+    """
+    Zwraca True gdy studzienka NIE spełnia kryterium bójczego (redukcja <
+    próg - odpowiednik "wzrostu" dla wspólnego algorytmu), False gdy
+    kryterium jest spełnione (redukcja >= próg - odpowiednik "brak"), albo
+    None gdy cfu_value/cfu_t0 nie da się odczytać jako liczby.
+
+    redukcja = 1 - (CFU_studzienki / CFU_t0). Patrz założenie o wspólnej
+    podstawie objętościowej w nagłówku sekcji.
+    """
+    if pd.isna(cfu_value) or cfu_t0 is None or pd.isna(cfu_t0) or cfu_t0 <= 0:
+        return None
+    try:
+        cfu_value = float(cfu_value)
+    except (TypeError, ValueError):
+        return None
+    redukcja = 1.0 - (cfu_value / cfu_t0)
+    return redukcja < threshold
+
+
+def _process_mbc_row(row, bact_col, well_cols, controls_df):
+    """
+    Odpowiednik _process_row dla MBC_posiew. Reużywa lookup_controls i
+    validate_run identycznie jak MIC (ta sama ważność przebiegu), z jednym
+    dodatkowym wymogiem specyficznym dla MBC: liczbowe CFU_t0 w arkuszu
+    Kontrole (bez tego nie da się policzyć redukcji w ogóle).
+    """
+    base = _base_fields(row, bact_col)
+    przebieg = row.get(COL_RUN)
+    ctrl = lookup_controls(controls_df, przebieg)
+
+    if ctrl is not None:
+        is_valid, invalid_reason = validate_run(ctrl.get(COL_GROWTH_CONTROL), ctrl.get(COL_STERILITY_CONTROL))
+        if not is_valid:
+            return _result(base, None, MIC_STATUS_INVALID_RUN, invalid_reason, None, [])
+
+    cfu_t0_raw = ctrl.get(COL_INOCULUM) if ctrl is not None else None
+    cfu_t0 = _try_parse_numeric_control(cfu_t0_raw)
+    if cfu_t0 is None or cfu_t0 <= 0:
+        return _result(
+            base, None, MIC_STATUS_MISSING_CONTROLS,
+            f"Brak liczbowej wartości {COL_INOCULUM!r} (CFU t0) w arkuszu Kontrole dla Przebiegu "
+            f"'{przebieg}' - wymagana do policzenia redukcji CFU. Nie liczę MBC dla tego wiersza.",
+            None, [],
+        )
+
+    stez_s1 = row.get(COL_STEZ_S1)
+    wsp_rozc = row.get(COL_DILUTION_FACTOR)
+    if pd.isna(stez_s1) or pd.isna(wsp_rozc):
+        return _result(
+            base, None, MIC_STATUS_NEEDS_REVIEW,
+            f"Brak {COL_STEZ_S1!r} lub {COL_DILUTION_FACTOR!r} - nie można wyliczyć stężeń studzienek.",
+            None, [],
+        )
+    if wsp_rozc <= 1:
+        return _result(
+            base, None, MIC_STATUS_NEEDS_REVIEW,
+            f"{COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg rozcieńczeń).",
+            None, [],
+        )
+
+    conc_growth_pairs = []
+    wells_detail = []
+    parse_notes = []
+    for i, col in enumerate(well_cols, start=1):
+        raw_value = row.get(col)
+        conc = compute_well_concentration(stez_s1, wsp_rozc, i)
+        does_not_meet = classify_mbc_well(raw_value, cfu_t0)
+        if does_not_meet is None and pd.notna(raw_value):
+            parse_notes.append(f"{col}: nierozpoznana wartość CFU {raw_value!r} - pominięto.")
+        wells_detail.append({"well": col, "conc": conc, "raw": raw_value, "growth": does_not_meet})
+        if does_not_meet is not None:
+            conc_growth_pairs.append((conc, does_not_meet))
+
+    mbc_result = compute_endpoint_from_wells(conc_growth_pairs, endpoint_name="MBC")
+    reason = (
+        mbc_result["reason"] + " [Założenie: CFU studzienki i CFU_t0 są na tej samej podstawie "
+        "objętościowej (to samo rozcieńczenie/objętość posiewu) - redukcja liczona jako prosty stosunek.]"
+    )
+    if parse_notes:
+        reason = reason + " | " + "; ".join(parse_notes)
+
+    return _result(
+        base, mbc_result["mic_value"], mbc_result["status"], reason,
+        mbc_result["censored"], wells_detail,
+    )
+
+
+def process_mbc(df, controls_df):
+    """Przetwarza KAŻDY wiersz arkusza MBC_posiew. Zwraca listę dictów wyniku
+    (dokładnie ten sam kształt co process_mic_wizualny/process_mic_od)."""
+    bact_col = utils.find_bacteria_column(df)
+    well_cols = [c for c in WELL_COLUMNS if c in df.columns]
+    return [_process_mbc_row(row, bact_col, well_cols, controls_df) for _, row in df.iterrows()]
 
 
 # ============================================================
