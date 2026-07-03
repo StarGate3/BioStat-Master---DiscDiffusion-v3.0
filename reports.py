@@ -42,7 +42,12 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
         # 1. Metryczka
         elements.append(Paragraph("Raport z analizy Disk Diffusion", styles['Title']))
         elements.append(Spacer(1, 12))
-        meta_text = f"<b>Data:</b> {metadata['date']}<br/><b>Bakteria:</b> {metadata['bact']}<br/><b>Post-hoc:</b> {metadata['method']}<br/><b>Ref:</b> {metadata['ref']}"
+        meta_text = (
+            f"<b>Data:</b> {metadata['date']}<br/>"
+            f"<b>Bakteria:</b> {metadata['bact']}<br/>"
+            f"<b>Post-hoc:</b> {metadata['method']}<br/>"
+            f"<b>Grupa referencyjna (kontrola, do której porównywano istotność):</b> {metadata['ref']}"
+        )
         elements.append(Paragraph(meta_text, styles['Normal']))
         elements.append(Spacer(1, 24))
 

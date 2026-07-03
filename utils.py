@@ -7,6 +7,7 @@ from config import (
     COHENS_D_SMALL, COHENS_D_MEDIUM, COHENS_D_LARGE,
     DIXON_Q90_CRITICAL,
     CONCENTRATION_SEARCH_PATTERN, CONCENTRATION_STRIP_PATTERN,
+    NEGATIVE_CONTROL_SIGNALS, POSITIVE_CONTROL_SIGNALS, KNOWN_ANTIBIOTIC_SUBSTRINGS,
 )
 
 # --- SORTOWANIE I PARSOWANIE ---
@@ -41,6 +42,35 @@ def parse_concentration(group_name):
             return substance, conc, unit
         except ValueError: return None, None, None
     return None, None, None
+
+# --- WYKRYWANIE KONTROLI NEGATYWNEJ (grupa referencyjna) ---
+def select_negative_control(groups):
+    """
+    Próbuje jednoznacznie wskazać grupę kontroli NEGATYWNEJ spośród `groups`.
+
+    Zwraca (grupa, ambiguous):
+        - (nazwa_grupy, False) - dokładnie jedna jednoznaczna grupa negatywna.
+        - (None, True)         - brak jednoznacznej grupy (0 lub >1 kandydatów),
+                                  wymaga ręcznego wyboru przez użytkownika.
+
+    Grupa pasująca do POSITIVE_CONTROL_SIGNALS lub KNOWN_ANTIBIOTIC_SUBSTRINGS
+    nigdy nie jest zwracana, nawet jeśli zawiera też sygnał negatywny (np.
+    "Kontrola (+) Ampicylina" zawiera "kontrol" ale jest kontrolą pozytywną).
+    """
+    def is_positive(name):
+        low = name.lower()
+        return (any(s in low for s in POSITIVE_CONTROL_SIGNALS)
+                or any(s in low for s in KNOWN_ANTIBIOTIC_SUBSTRINGS))
+
+    def is_negative(name):
+        low = name.lower()
+        return any(s in low for s in NEGATIVE_CONTROL_SIGNALS)
+
+    candidates = [g for g in groups if is_negative(g) and not is_positive(g)]
+
+    if len(candidates) == 1:
+        return candidates[0], False
+    return None, True
 
 # --- STATYSTYKA: EFFECT SIZE ---
 def calculate_cohens_d(group1_data, group2_data):

@@ -13,7 +13,7 @@ from dialogs import OutlierDialog, HelpDialog, AboutDialog
 import reports
 from logic import StatsEngine
 from plotting import Plotter
-from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI, REF_PLACEHOLDER
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -249,10 +249,25 @@ class App(ctk.CTk):
             
             df_temp = self.df[self.df[self.col_bact_name] == selected_bact]
             grupy_bact = sorted(df_temp[COL_GROUP].unique(), key=utils.smart_sort_key)
-            self.combo_ref.configure(values=grupy_bact)
-            woda = next((g for g in grupy_bact if "woda" in g.lower() or "kontrol" in g.lower()), None)
-            if woda: self.combo_ref.set(woda)
-            elif grupy_bact: self.combo_ref.set(grupy_bact[0])
+
+            ref_candidate, ambiguous = utils.select_negative_control(grupy_bact)
+            if not ambiguous:
+                self.combo_ref.configure(values=grupy_bact)
+                self.combo_ref.set(ref_candidate)
+            else:
+                # Nigdy nie zgadujemy (np. wybierając kontrolę pozytywną) - użytkownik
+                # musi wybrać ręcznie, dopóki nie ma jednoznacznej kontroli negatywnej.
+                self.combo_ref.configure(values=[REF_PLACEHOLDER] + grupy_bact)
+                self.combo_ref.set(REF_PLACEHOLDER)
+                messagebox.showwarning(
+                    "Wybierz grupę referencyjną ręcznie",
+                    "Nie znaleziono jednoznacznej kontroli negatywnej wśród grup dla tego szczepu "
+                    "(0 lub więcej niż 1 pasująca grupa).\n\n"
+                    "Wybierz RĘCZNIE grupę referencyjną (kontrolę) w polu '4. Grupa odniesienia' "
+                    "przed uruchomieniem analizy. Program nigdy nie wybiera automatycznie kontroli "
+                    "pozytywnej (antybiotyku) jako referencji."
+                )
+                self.log("!!! UWAGA: nie wybrano automatycznie grupy referencyjnej - wybierz ją ręcznie w polu '4. Grupa odniesienia'. !!!")
         except Exception as e: self.log(f"Błąd zmiany bakterii: {e}")
 
     def select_all(self):
@@ -471,6 +486,15 @@ Error bars represent standard deviation. This overview highlights the differenti
         ref_group = self.combo_ref.get()
         if method == "None": method = None
 
+        if ref_group in (REF_PLACEHOLDER, "...", ""):
+            messagebox.showerror(
+                "Brak grupy referencyjnej",
+                "Nie wybrano prawidłowej grupy referencyjnej (kontroli).\n\n"
+                "Program nie mógł jednoznacznie rozpoznać kontroli negatywnej automatycznie. "
+                "Wybierz ją ręcznie w polu '4. Grupa odniesienia' przed uruchomieniem analizy."
+            )
+            return
+
         wybrane = self.get_selected_groups()
         if not wybrane:
             messagebox.showwarning("Stop", "Nie wybrano próbek!")
@@ -512,6 +536,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         # Logowanie wyników
         self.clear_log()
         self.log(f"=== RAPORT v3: {bact} ===")
+        self.log(f">>> GRUPA REFERENCYJNA (kontrola do porównań): {ref_group} <<<")
         self.export_stats_normality = summary_res['normality']
         self.export_stats_main = summary_res['main_stats']
         self.export_stats_posthoc = posthoc_df

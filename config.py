@@ -78,6 +78,39 @@ CONCENTRATION_SEARCH_PATTERN: str = r"([\d,.]+)\s*(" + _UNITS_ALT + r")"
 CONCENTRATION_STRIP_PATTERN: str = r"\s*\(?[\d,.]+\s*(" + _UNITS_ALT + r").*\)?"
 
 # ============================================================
+# WYKRYWANIE KONTROLI (grupa referencyjna)
+# ============================================================
+
+NEGATIVE_CONTROL_SIGNALS: tuple = ('(-)', 'woda', 'water', 'negatyw', 'vehicle', 'dmso')
+"""Case-insensitive substrings identifying a NEGATIVE control group
+(untreated/vehicle baseline). A group must match one of these AND none of
+POSITIVE_CONTROL_SIGNALS / KNOWN_ANTIBIOTIC_SUBSTRINGS to auto-qualify as
+the reference group for statistical comparisons."""
+
+POSITIVE_CONTROL_SIGNALS: tuple = ('(+)', 'pozytyw', 'positive')
+"""Case-insensitive substrings identifying a POSITIVE control group
+(reference antibiotic). Groups matching these are NEVER auto-selected as
+the reference group, even if they also contain a "kontrol"-like substring."""
+
+KNOWN_ANTIBIOTIC_SUBSTRINGS: tuple = (
+    'ampicylin', 'ampicillin', 'ampycylin', 'amoksycylin', 'amoxicillin',
+    'penicylin', 'penicillin', 'streptomycyn', 'streptomycin',
+    'tetracyklin', 'tetracycline', 'erytromycyn', 'erythromycin',
+    'gentamycyn', 'gentamicin', 'wankomycyn', 'vancomycin',
+    'cyprofloksacyn', 'ciprofloxacin', 'chloramfenikol', 'chloramphenicol',
+    'kanamycyn', 'kanamycin',
+)
+"""Case-insensitive substrings of common reference-antibiotic names, incl.
+the 'Ampycylina' typo seen in real lab spreadsheets. Treated the same as
+POSITIVE_CONTROL_SIGNALS: never auto-selected as the reference group. Not
+exhaustive - extend as needed for antibiotics used in your assays."""
+
+REF_PLACEHOLDER: str = "-- Wybierz ręcznie (niejednoznaczne) --"
+"""Sentinel shown in the reference-group dropdown when auto-detection could
+not unambiguously identify a negative control. Never a real group name;
+run_analysis refuses to proceed while this value is selected."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 
