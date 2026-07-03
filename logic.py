@@ -6,7 +6,10 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import utils
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, MIC_MIN_R2
+from config import (
+    DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, MIC_MIN_R2,
+    INTERNAL_SUBSTANCE_COL, INTERNAL_CONC_COL, INTERNAL_UNIT_COL,
+)
 
 class StatsEngine:
     def __init__(self):
@@ -190,28 +193,46 @@ class StatsEngine:
         """
         results = {}
 
+        # Nowy format: kolumna Stężenie jest ustrukturyzowana (liczbowa) i
+        # powiązana z substancją wprost przez INTERNAL_SUBSTANCE_COL - używamy
+        # jej bezpośrednio, bez parsowania tekstu nazwy grupy. To eliminuje
+        # ryzyko pomylenia kodu substancji (np. "55-156") ze stężeniem.
+        has_structured_conc = (
+            INTERNAL_SUBSTANCE_COL in df.columns
+            and INTERNAL_CONC_COL in df.columns
+            and df[INTERNAL_CONC_COL].notna().any()
+        )
+
         for sub in selected_substances:
-            # 1. Pobierz dane tylko dla tej substancji
-            # Musimy wyciągnąć stężenia z nazw grup.
-            # Używamy utils.parse_concentration
-
-            sub_df = df[df[COL_GROUP].str.contains(sub, regex=False)].copy() # Wstępne filtrowanie, ale dokładne parsowanie niżej
-
             x_concs = []
             y_diams = []
             valid_unit = ""
 
-            for g in sub_df[COL_GROUP].unique():
-                parsed_sub, conc, unit = utils.parse_concentration(g)
-                # Sprawdź czy to ta substancja (bo contains jest luźne)
-                if parsed_sub and sub in parsed_sub and conc is not None:
-                    # Pobierz wszystkie pomiary dla tej grupy
-                    measurements = sub_df[sub_df[COL_GROUP] == g][COL_MEASUREMENT].values
-                    for m in measurements:
-                        if conc > 0:
-                            x_concs.append(conc)
-                            y_diams.append(m)
-                            valid_unit = unit
+            if has_structured_conc:
+                # 1. Nowy format: stężenie WPROST z kolumny Stezenie.
+                sub_df = df[(df[INTERNAL_SUBSTANCE_COL] == sub) & df[INTERNAL_CONC_COL].notna()]
+                for _, row in sub_df.iterrows():
+                    conc = row[INTERNAL_CONC_COL]
+                    if conc > 0:
+                        x_concs.append(conc)
+                        y_diams.append(row[COL_MEASUREMENT])
+                        valid_unit = row[INTERNAL_UNIT_COL]
+            else:
+                # 1. Stary format: musimy wyciągnąć stężenia z nazw grup
+                # (utils.parse_concentration) - zachowanie bez zmian.
+                sub_df = df[df[COL_GROUP].str.contains(sub, regex=False)].copy() # Wstępne filtrowanie, ale dokładne parsowanie niżej
+
+                for g in sub_df[COL_GROUP].unique():
+                    parsed_sub, conc, unit = utils.parse_concentration(g)
+                    # Sprawdź czy to ta substancja (bo contains jest luźne)
+                    if parsed_sub and sub in parsed_sub and conc is not None:
+                        # Pobierz wszystkie pomiary dla tej grupy
+                        measurements = sub_df[sub_df[COL_GROUP] == g][COL_MEASUREMENT].values
+                        for m in measurements:
+                            if conc > 0:
+                                x_concs.append(conc)
+                                y_diams.append(m)
+                                valid_unit = unit
 
             n_points = len(set(x_concs))
             if n_points < 3:
