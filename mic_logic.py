@@ -772,3 +772,196 @@ def dilution_difference(desc_a, desc_b):
         "direction": direction,
         "threshold": MIC_MEANINGFUL_DILUTION_DIFF,
     }
+
+
+# ============================================================
+# WARSTWA 2: TEST INFERENCYJNY (Mann-Whitney / Kruskal-Wallis + Dunn)
+# ============================================================
+#
+# REGUŁA CENZURY DLA RANGOWANIA (opisana tu raz, obowiązuje wszędzie w tej
+# warstwie): testy rangowe (Mann-Whitney, Kruskal-Wallis, Dunn) liczą rangi
+# na POŁĄCZONEJ próbie wszystkich porównywanych grup. Wartość "≤X" jest z
+# założenia nie większa niż jakakolwiek wartość dokładna w zbiorze (bo
+# dokładne MIC z Fazy 2 zawsze mieszczą się w przetestowanym zakresie
+# rozcieńczeń), a ">X" nie mniejsza niż jakakolwiek wartość dokładna -
+# dlatego WSZYSTKIE "≤" w połączonej próbie dostają JEDNĄ WSPÓLNĄ,
+# NAJNIŻSZĄ wiązaną rangę (są sobie nawzajem "remisowane" niezależnie od
+# konkretnego X), a WSZYSTKIE ">" dostają JEDNĄ WSPÓLNĄ, NAJWYŻSZĄ wiązaną
+# rangę - wartości dokładne dostają zwykłe rangi (ze standardowym
+# remisowaniem average-tie) POMIĘDZY tymi dwoma blokami.
+#
+# Implementacja: zamiast ręcznie przeliczać wzory testów na gotowych
+# rangach (ryzykowne, łatwo o subtelny błąd we wzorze korekty na remisy),
+# każdej cenzurowanej wartości przypisujemy WSPÓLNĄ liczbę zastępczą
+# (surogat) gwarantowanie mniejszą/większą od każdej wartości dokładnej w
+# połączonej próbie, i przekazujemy surogaty do standardowych funkcji
+# scipy/scikit-posthocs - ich WŁASNE, przetestowane rangowanie (average-tie)
+# automatycznie zwiąże wszystkie cenzurowane-nisko razem na dole i
+# cenzurowane-wysoko razem na górze, dokładnie wg powyższej reguły.
+
+def _censoring_surrogate(entries):
+    """
+    Zwraca listę wartości liczbowych (ta sama długość/kolejność co entries)
+    gotową do bezpośredniego podania do scipy.stats.mannwhitneyu/kruskal
+    albo scikit_posthocs.posthoc_dunn - patrz reguła cenzury w nagłówku
+    sekcji.
+    """
+    exact = [e["log2"] for e in entries if e["censored"] is None]
+    if exact:
+        lo, hi = min(exact), max(exact)
+    else:
+        lo = hi = 0.0
+    span = max(hi - lo, 1.0)
+    surrogate_low = lo - span - 1.0
+    surrogate_high = hi + span + 1.0
+
+    out = []
+    for e in entries:
+        if e["censored"] == "low":
+            out.append(surrogate_low)
+        elif e["censored"] == "high":
+            out.append(surrogate_high)
+        else:
+            out.append(e["log2"])
+    return out
+
+
+# ============================================================
+# WARSTWA 3: OSŁONY (gaszą p-value, zostaje opis z Warstwy 1)
+# ============================================================
+
+def _censored_fraction(entries):
+    if not entries:
+        return 0.0
+    return sum(1 for e in entries if e["censored"] is not None) / len(entries)
+
+
+def _check_layer3_guards(groups_entries):
+    """
+    groups_entries: dict {label: lista entries (z _bio_results_to_entries)}.
+
+    Sprawdza warunki Warstwy 3 w kolejności (a)-(d) z zadania. Zwraca dict:
+      - suppressed (bool): czy Warstwa 2 (test) ma być pominięta.
+      - reason (str | None): jawny powód wygaszenia (gdy suppressed=True).
+      - low_n_bio_warning (bool): czy KTÓRAKOLWIEK grupa ma n_bio=1 (test
+        i tak się liczy, ale z banerem - patrz (d)).
+      - blocked_groups (list[str]): etykiety grup z n_bio=0 (poniżej
+        MIN_N_BIO_FOR_COMPARISON) - blokują całe porównanie, nie tylko
+        wygaszają p-value.
+    """
+    blocked_groups = [label for label, entries in groups_entries.items() if len(entries) < MIN_N_BIO_FOR_COMPARISON]
+    if blocked_groups:
+        return {
+            "suppressed": True, "blocked_groups": blocked_groups, "low_n_bio_warning": False,
+            "reason": (
+                f"Porównanie zablokowane: grupa(y) bez żadnej wartości MIC (n_bio=0): "
+                f"{', '.join(blocked_groups)}. Nie ma czego opisać ani porównać."
+            ),
+        }
+
+    low_n_bio_warning = any(len(entries) == 1 for entries in groups_entries.values())
+
+    # (a)/(b) odsetek cenzury (100% to szczegolny przypadek tego samego testu)
+    over_threshold = {
+        label: _censored_fraction(entries)
+        for label, entries in groups_entries.items()
+        if _censored_fraction(entries) > MIC_MAX_CENSORED_FRACTION
+    }
+    if over_threshold:
+        parts = []
+        for label, frac in over_threshold.items():
+            if frac >= 1.0:
+                parts.append(f"'{label}' jest CAŁKOWICIE cenzurowana (100%)")
+            else:
+                parts.append(f"'{label}' ma {frac:.0%} wartości cenzurowanych")
+        reason = (
+            f"Test istotności wygaszony: " + "; ".join(parts) +
+            f" (próg: >{MIC_MAX_CENSORED_FRACTION:.0%}). Obserwowana różnica byłaby w dużej mierze "
+            f"efektem konwencji wiązania rang wartości cenzurowanych, nie realnego sygnału. "
+            f"Zostaje opis z Warstwy 1 (mediana/zakres/różnica rozcieńczeń)."
+        )
+        return {"suppressed": True, "blocked_groups": [], "low_n_bio_warning": low_n_bio_warning, "reason": reason}
+
+    return {"suppressed": False, "blocked_groups": [], "low_n_bio_warning": low_n_bio_warning, "reason": None}
+
+
+# ============================================================
+# ORKIESTRACJA: WARSTWY 1+2+3 RAZEM
+# ============================================================
+
+def compare_mic_groups(groups, method="holm"):
+    """
+    Porównuje >=2 grup MIC (np. różnych substancji dla jednego szczepu).
+
+    groups: dict {etykieta: bio_results} - bio_results to lista wyników
+    biologicznych z Fazy 3 (aggregate_technical_to_biological), jedna
+    lista na etykietę porównywanej grupy.
+    method: korekta wielokrotnych porównań dla >2 grup przy Dunn's test
+    ("holm" domyślnie, spójnie z modułem dyfuzji; "fdr_bh"/"bonferroni").
+
+    Zwraca dict:
+      - descriptions: {etykieta: describe_mic_group(...)}                    [Warstwa 1]
+      - pairwise: {(etykieta_a, etykieta_b): dilution_difference(...)}       [Warstwa 1,
+        dla WSZYSTKICH par, zawsze liczone niezależnie od tego, czy test
+        w Warstwie 2 się wykonał]
+      - layer2: dict z kluczami attempted/suppressed_reason/low_n_bio_warning/
+        test/statistic/p_value/posthoc/correction_method               [Warstwa 2/3]
+    """
+    if len(groups) < 2:
+        raise ValueError("compare_mic_groups: potrzeba co najmniej 2 grup do porównania.")
+
+    labels = list(groups.keys())
+    entries_by_group = {label: _bio_results_to_entries(bio) for label, bio in groups.items()}
+    descriptions = {label: describe_mic_group(bio) for label, bio in groups.items()}
+
+    pairwise = {
+        (a, b): dilution_difference(descriptions[a], descriptions[b])
+        for a, b in combinations(labels, 2)
+    }
+
+    guard = _check_layer3_guards(entries_by_group)
+    layer2 = {
+        "attempted": not guard["suppressed"],
+        "suppressed_reason": guard["reason"],
+        "low_n_bio_warning": guard["low_n_bio_warning"],
+        "test": None, "statistic": None, "p_value": None,
+        "posthoc": None, "correction_method": None,
+    }
+
+    if not guard["suppressed"]:
+        if len(labels) == 2:
+            a, b = labels
+            # Surogat MUSI być liczony na PULI OBU grup naraz (nie osobno na
+            # każdej) - inaczej wysoki surogat cenzury z grupy A mógłby
+            # wypaść NIŻEJ niż realne wartości grupy B, łamiąc regułę
+            # "cenzurowane zawsze na skraju połączonej próby".
+            pooled = entries_by_group[a] + entries_by_group[b]
+            surrogate = _censoring_surrogate(pooled)
+            na = len(entries_by_group[a])
+            sa, sb = surrogate[:na], surrogate[na:]
+            stat, p = stats.mannwhitneyu(sa, sb, alternative="two-sided")
+            layer2["test"] = "Mann-Whitney"
+            layer2["statistic"] = float(stat)
+            layer2["p_value"] = float(p)
+        else:
+            pooled_entries, pooled_labels = [], []
+            for label in labels:
+                for e in entries_by_group[label]:
+                    pooled_entries.append(e)
+                    pooled_labels.append(label)
+            surrogate = _censoring_surrogate(pooled_entries)
+            groups_for_kw = [
+                [surrogate[i] for i in range(len(surrogate)) if pooled_labels[i] == label]
+                for label in labels
+            ]
+            stat, p = stats.kruskal(*groups_for_kw)
+            layer2["test"] = "Kruskal-Wallis"
+            layer2["statistic"] = float(stat)
+            layer2["p_value"] = float(p)
+            if p < ALPHA:
+                df_posthoc = pd.DataFrame({"value": surrogate, "group": pooled_labels})
+                posthoc_df = sp.posthoc_dunn(df_posthoc, val_col="value", group_col="group", p_adjust=method)
+                layer2["posthoc"] = posthoc_df
+                layer2["correction_method"] = method
+
+    return {"descriptions": descriptions, "pairwise": pairwise, "layer2": layer2}
