@@ -537,6 +537,10 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.clear_log()
         self.log(f"=== RAPORT v3: {bact} ===")
         self.log(f">>> GRUPA REFERENCYJNA (kontrola do porównań): {ref_group} <<<")
+        self.log(
+            "UWAGA: program porównuje średnice stref zahamowania statystycznie i NIE wylicza "
+            "klinicznych kategorii S/I/R (Susceptible/Intermediate/Resistant) wg CLSI (M100) ani EUCAST."
+        )
         self.export_stats_normality = summary_res['normality']
         self.export_stats_main = summary_res['main_stats']
         self.export_stats_posthoc = posthoc_df

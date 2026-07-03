@@ -61,7 +61,13 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
             ))
             elements.append(Spacer(1, 12))
 
-        elements.append(Spacer(1, 12))
+        elements.append(Paragraph(
+            "Niniejsza analiza porównuje średnice stref zahamowania metodami statystycznymi "
+            "(test istotności + wielkość efektu) i NIE wylicza klinicznych kategorii S/I/R "
+            "(Susceptible/Intermediate/Resistant) wg CLSI (M100) ani EUCAST.",
+            styles['Normal']
+        ))
+        elements.append(Spacer(1, 24))
 
         # 2. Tabela Statystyk
         if stats_summary is not None:

@@ -2,6 +2,8 @@
 
 **BioStat Master** is a specialized, modular Python application designed for the statistical analysis and visualization of **Disk Diffusion Assays** (Zone of Inhibition data). It automates the entire workflow from raw Excel data to publication-ready figures and reports, ensuring statistical rigor using standard biostatistical methods.
 
+> **Disclaimer:** this tool compares inhibition-zone diameters statistically (significance tests + effect size) and does **not** compute clinical S/I/R (Susceptible/Intermediate/Resistant) categories per CLSI (M100) or EUCAST breakpoints.
+
 ---
 
 ## 🚀 Key Features
