@@ -6,9 +6,10 @@ MIC_wizualny lub MIC_OD, wyznacz wartość MIC z serii studzienek S1..S10.
 Nie ma tu jeszcze agregacji powtórzeń, statystyki międzygrupowej ani
 wykresów - to kolejne fazy.
 
-Podstawowy algorytm (compute_mic_from_wells) jest wspólny dla obu trybów;
-różni je tylko sposób sprowadzenia surowej wartości studzienki do
-booleana "wzrost/brak" (patrz classify_wizualny_well / classify_od_well).
+Podstawowy algorytm (compute_endpoint_from_wells) jest w pełni generyczny -
+wspólny dla obu trybów odczytu MIC i (od Fazy MBC) dla MBC; różni je tylko
+sposób sprowadzenia surowej wartości studzienki do booleana "kryterium
+niespełnione" (patrz classify_wizualny_well / classify_od_well / classify_mbc_well).
 """
 import math
 from collections import defaultdict
@@ -40,42 +41,60 @@ def compute_well_concentration(stez_s1, wsp_rozc, well_number):
     return stez_s1 / (wsp_rozc ** (well_number - 1))
 
 
-def compute_mic_from_wells(conc_growth_pairs):
+def compute_endpoint_from_wells(conc_growth_pairs, endpoint_name="MIC"):
     """
-    Rdzeń algorytmu - niezależny od trybu (wizualny/OD) i od arkusza.
+    Rdzeń algorytmu - w pełni GENERYCZNY: niezależny od trybu odczytu
+    (wizualny/OD/CFU), od arkusza, i od tego, czy wyznacza się MIC czy MBC
+    (endpoint_name steruje tylko treścią komunikatów). Reużywane bez
+    duplikacji przez _process_row (MIC) i _process_mbc_row (MBC).
 
-    conc_growth_pairs: lista (stężenie: float, wzrost: bool) TYLKO dla
-    studzienek z rozpoznaną wartością (studzienki puste/nierozpoznane mają
-    być odfiltrowane PRZED wywołaniem). Kolejność wejściowa dowolna -
-    funkcja sama sortuje malejąco po stężeniu (S1 = najwyższe stężenie).
+    conc_growth_pairs: lista (stężenie: float, kryterium_niespełnione: bool)
+    TYLKO dla studzienek z rozpoznaną wartością (studzienki puste/
+    nierozpoznane mają być odfiltrowane PRZED wywołaniem). Kolejność
+    wejściowa dowolna - funkcja sama sortuje malejąco po stężeniu (S1 =
+    najwyższe stężenie).
 
-    wzrost=True  -> studzienka urosła (nieshamowana)
-    wzrost=False -> studzienka "brak" (zahamowana)
+    Drugi element pary (nazwany tu ogólnie "kryterium niespełnione", bo
+    znaczenie zależy od kontekstu):
+      - MIC: True = studzienka urosła ("wzrost", NIE zahamowana),
+             False = "brak" wzrostu (zahamowana - kryterium inhibicji spełnione).
+      - MBC: True = studzienka NIE osiągnęła progu redukcji CFU (bakterie
+             przeżyły w istotnej liczbie - kryterium bójcze NIE spełnione),
+             False = próg redukcji osiągnięty (kryterium bójcze spełnione).
+    W obu przypadkach oczekiwany wzorzec jest identyczny: kryterium
+    spełnione (False) przy wysokich stężeniach, przechodzące w niespełnione
+    (True) przy niskich - stąd wspólny algorytm.
 
     Zwraca dict:
-      - mic_value (float | None): wartość liczbowa MIC, albo granica przy
-        cenzurze (patrz "censored"), albo None gdy nie da się wyznaczyć.
-      - status: jeden z MIC_STATUS_* (config.py).
+      - mic_value (float | None): wartość liczbowa (MIC albo MBC), albo
+        granica przy cenzurze (patrz "censored"), albo None gdy nie da się
+        wyznaczyć. Nazwa klucza zachowana jako "mic_value" dla obu
+        zastosowań (patrz uzasadnienie w module mic_logic - to jeden,
+        współdzielony kształt wyniku używany dalej przez Fazy 3/4).
+      - status: jeden z MIC_STATUS_* (config.py) - te same stałe dla MIC i MBC.
       - reason (str): zawsze czytelny, nawet dla status="ok".
       - censored: "low" | "high" | None. Gdy nie None, mic_value to GRANICA,
-        NIE dokładna wartość MIC - wyświetlaj zawsze z prefiksem ≤/> (patrz
+        NIE dokładna wartość - wyświetlaj zawsze z prefiksem ≤/> (patrz
         format_mic_display), nigdy jako zwykłą liczbę.
 
     Zasady:
-      1. Cała seria "brak"  -> MIC <= najniższe testowane stężenie (censored="low").
-      2. Cała seria "wzrost" -> MIC > najwyższe testowane stężenie (censored="high").
-      3. Wzrost widoczny już w najwyższym testowanym stężeniu, a mimo to
-         jakieś niższe stężenie pokazuje "brak" -> wynik niejednoznaczny,
-         status wymaga_weryfikacji, mic_value=None (nie ma wiarygodnej
-         wartości do podania).
-      4. W pozostałych przypadkach: MIC = stężenie ostatniej studzienki
-         "brak" WYSTĘPUJĄCEJ PRZED pierwszym napotkanym "wzrost" (skanując
-         od najwyższego stężenia w dół). To jest CELOWO ta sama formuła
-         niezależnie od tego, czy seria jest potem monotoniczna - wybrano
-         ją jako regułę zachowawczą: nigdy nie zgłasza MIC niższego niż
-         stężenie, przy którym już raz zaobserwowano wzrost. Gdy po tym
-         pierwszym "wzrost" pojawi się jednak jeszcze jakieś "brak"
-         (naruszenie monotoniczności - możliwy "skip well"), wartość MIC
+      1. Kryterium spełnione we WSZYSTKICH studzienkach -> wartość <=
+         najniższe testowane stężenie (censored="low").
+      2. Kryterium NIE spełnione w ŻADNEJ studzience -> wartość > najwyższe
+         testowane stężenie (censored="high").
+      3. Kryterium niespełnione widoczne już w najwyższym testowanym
+         stężeniu, a mimo to jakieś niższe stężenie JE spełnia -> wynik
+         niejednoznaczny, status wymaga_weryfikacji, mic_value=None (nie ma
+         wiarygodnej wartości do podania).
+      4. W pozostałych przypadkach: wartość = stężenie ostatniej studzienki
+         SPEŁNIAJĄCEJ kryterium, WYSTĘPUJĄCEJ PRZED pierwszym napotkanym
+         niespełnieniem (skanując od najwyższego stężenia w dół). To jest
+         CELOWO ta sama formuła niezależnie od tego, czy seria jest potem
+         monotoniczna - wybrano ją jako regułę zachowawczą: nigdy nie
+         zgłasza wartości niższej niż stężenie, przy którym już raz
+         zaobserwowano niespełnienie kryterium. Gdy po tym pierwszym
+         niespełnieniu pojawi się jednak jeszcze jakieś spełnienie
+         (naruszenie monotoniczności - możliwy "skip well"), wartość
          zostaje taka sama, ale status zmienia się na wymaga_weryfikacji
          z opisem, które studzienki są anomalią.
     """
@@ -83,7 +102,7 @@ def compute_mic_from_wells(conc_growth_pairs):
         return {
             "mic_value": None,
             "status": MIC_STATUS_NEEDS_REVIEW,
-            "reason": "Brak odczytanych (rozpoznanych) studzienek - nie można wyznaczyć MIC.",
+            "reason": f"Brak odczytanych (rozpoznanych) studzienek - nie można wyznaczyć {endpoint_name}.",
             "censored": None,
         }
 
@@ -97,8 +116,8 @@ def compute_mic_from_wells(conc_growth_pairs):
             "mic_value": lowest,
             "status": MIC_STATUS_CENSORED_LOW,
             "reason": (
-                f"Brak wzrostu we wszystkich testowanych studzienkach - prawdziwe MIC może być "
-                f"niższe niż najniższe testowane stężenie ({lowest:g})."
+                f"Kryterium spełnione we wszystkich testowanych studzienkach - prawdziwe {endpoint_name} "
+                f"może być niższe niż najniższe testowane stężenie ({lowest:g})."
             ),
             "censored": "low",
         }
@@ -109,8 +128,8 @@ def compute_mic_from_wells(conc_growth_pairs):
             "mic_value": highest,
             "status": MIC_STATUS_CENSORED_HIGH,
             "reason": (
-                f"Wzrost we wszystkich testowanych studzienkach - prawdziwe MIC może być wyższe "
-                f"niż najwyższe testowane stężenie ({highest:g})."
+                f"Kryterium NIE spełnione w żadnej testowanej studzience - prawdziwe {endpoint_name} "
+                f"może być wyższe niż najwyższe testowane stężenie ({highest:g})."
             ),
             "censored": "high",
         }
@@ -122,9 +141,9 @@ def compute_mic_from_wells(conc_growth_pairs):
             "mic_value": None,
             "status": MIC_STATUS_NEEDS_REVIEW,
             "reason": (
-                "Wzrost zaobserwowano już przy najwyższym testowanym stężeniu, mimo że niższe "
-                "stężenie(a) wykazały brak wzrostu - wynik niejednoznaczny, nie można wyznaczyć "
-                "MIC standardową metodą (brak studzienki 'powyżej' punktu odcięcia)."
+                f"Kryterium NIE spełnione już przy najwyższym testowanym stężeniu, mimo że niższe "
+                f"stężenie(a) je spełniły - wynik niejednoznaczny, nie można wyznaczyć {endpoint_name} "
+                f"standardową metodą (brak studzienki 'powyżej' punktu odcięcia)."
             ),
             "censored": None,
         }
@@ -136,18 +155,19 @@ def compute_mic_from_wells(conc_growth_pairs):
         return {
             "mic_value": mic_value,
             "status": MIC_STATUS_OK,
-            "reason": "Seria monotoniczna - MIC odczytane jednoznacznie.",
+            "reason": f"Seria monotoniczna - {endpoint_name} odczytane jednoznacznie.",
             "censored": None,
         }
 
     skip_concs = [concs[i] for i in range(first_growth_idx, len(growths)) if not growths[i]]
     skip_desc = ", ".join(f"{c:g}" for c in skip_concs)
     reason = (
-        f"Niemonotoniczna seria: wzrost pojawił się już przy stężeniu {concs[first_growth_idx]:g}, "
-        f"ale brak wzrostu wystąpił ponownie przy niższym stężeniu/stężeniach ({skip_desc}) - "
-        f"możliwy błąd studzienki (skip well) lub skażenie. MIC odczytane ZACHOWAWCZO jako ostatnia "
-        f"studzienka 'brak' PRZED pierwszym napotkanym 'wzrost' ({mic_value:g}), a NIE jako najniższe "
-        f"'brak' w całej serii - wymaga ręcznej weryfikacji."
+        f"Niemonotoniczna seria: kryterium przestało być spełnione już przy stężeniu "
+        f"{concs[first_growth_idx]:g}, ale zostało spełnione ponownie przy niższym "
+        f"stężeniu/stężeniach ({skip_desc}) - możliwy błąd studzienki (skip well) lub skażenie. "
+        f"{endpoint_name} odczytane ZACHOWAWCZO jako ostatnia studzienka spełniająca kryterium PRZED "
+        f"pierwszym napotkanym niespełnieniem ({mic_value:g}), a NIE jako najniższe spełnienie w całej "
+        f"serii - wymaga ręcznej weryfikacji."
     )
     return {
         "mic_value": mic_value,
@@ -394,7 +414,7 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
         if growth is not None:
             conc_growth_pairs.append((conc, growth))
 
-    mic_result = compute_mic_from_wells(conc_growth_pairs)
+    mic_result = compute_endpoint_from_wells(conc_growth_pairs, endpoint_name="MIC")
     reason = mic_result["reason"]
     if parse_notes:
         reason = reason + " | " + "; ".join(parse_notes)
