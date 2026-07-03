@@ -125,8 +125,12 @@ def detect_selected_substances(df_run, selected_groups):
 # --- STATYSTYKA: EFFECT SIZE ---
 def calculate_cohens_d(group1_data, group2_data):
     n1, n2 = len(group1_data), len(group2_data)
-    if n1 < 2 or n2 < 2: return 0.0
-    
+    # Wariancja wewnątrzgrupowa (a więc i pooled SD) jest niepoliczalna przy
+    # n<2 (np. brak replikacji biologicznej, n_bio=1) - NaN, nie 0.0: d=0
+    # oznaczałoby fałszywie "brak różnicy", podczas gdy w rzeczywistości po
+    # prostu nie da się tego policzyć z tych danych.
+    if n1 < 2 or n2 < 2: return np.nan
+
     var1 = np.var(group1_data, ddof=1)
     var2 = np.var(group2_data, ddof=1)
     
@@ -141,6 +145,7 @@ def calculate_cohens_d(group1_data, group2_data):
     return (mean1 - mean2) / s_pooled
 
 def get_effect_size_interpretation(d):
+    if pd.isna(d): return "nieokreślony (brak replikacji)"
     d = abs(d)
     if d < COHENS_D_SMALL: return "znikomy"
     elif d < COHENS_D_MEDIUM: return "mały"
@@ -400,3 +405,65 @@ def validate_and_normalize(df):
     cleaned_df, rejected = validate_excel_data(df, bacteria_col)
     df_internal, format_info = build_internal_representation(cleaned_df)
     return df_internal, bacteria_col, rejected, [], format_info
+
+# --- POWTÓRZENIA: AGREGACJA TECHNICZNYCH, PODSUMOWANIE BIOLOGICZNYCH ---
+def aggregate_technical_replicates(df, bacteria_col):
+    """
+    Uśrednia powtórzenia TECHNICZNE do jednej wartości na każde
+    (bacteria_col, COL_GROUP, INTERNAL_REP_BIO_COL) - PRZED testami
+    istotności, żeby n grupy w teście statystycznym = liczba powtórzeń
+    BIOLOGICZNYCH (n_bio), a nie liczba surowych wierszy. Liczenie
+    powtórzeń technicznych jako niezależnych obserwacji byłoby
+    pseudoreplikacją (sztucznie zawyżałoby moc testu / zaniżało p-value).
+
+    Dla starego formatu (brak kolumn powtórzeń) każda grupa ma dokładnie
+    jedno powtórzenie biologiczne obejmujące wszystkie jej surowe wiersze
+    (patrz build_internal_representation) - więc tutaj kolapsuje do
+    JEDNEGO wiersza na grupę (n_bio=1), co jest zamierzone: to właśnie
+    uwidacznia, że stare dane nie mają udokumentowanej replikacji
+    biologicznej.
+
+    Zwraca DataFrame z jednym wierszem na (bacteria_col, COL_GROUP,
+    INTERNAL_REP_BIO_COL): COL_MEASUREMENT to średnia techniczna, kolumna
+    'n_tech' (liczba uśrednionych powtórzeń technicznych w tym wierszu),
+    oraz metadane (_Typ/_Substancja/_Stezenie/_Jednostka) wzięte jako
+    pierwsza wartość (są stałe w obrębie klucza z założenia).
+    """
+    key = [bacteria_col, COL_GROUP, INTERNAL_REP_BIO_COL]
+    agg_spec = {COL_MEASUREMENT: 'mean'}
+    for meta_col in (INTERNAL_TYPE_COL, INTERNAL_SUBSTANCE_COL, INTERNAL_CONC_COL, INTERNAL_UNIT_COL):
+        if meta_col in df.columns:
+            agg_spec[meta_col] = 'first'
+
+    df_bio = df.groupby(key, as_index=False).agg(agg_spec)
+    n_tech = df.groupby(key).size().reset_index(name='n_tech')
+    df_bio = df_bio.merge(n_tech, on=key)
+    return df_bio
+
+def build_group_summary(df_bio, group_col=COL_GROUP):
+    """
+    Tabela opisowa per grupa na podstawie DANYCH JUŻ ZAGREGOWANYCH do
+    powtórzeń biologicznych (df_bio, patrz aggregate_technical_replicates):
+      - n_bio: liczba powtórzeń biologicznych (liczba wierszy df_bio per grupa)
+      - n_tech: łączna liczba surowych pomiarów technicznych złożonych na n_bio
+      - mean: średnia z powtórzeń biologicznych
+      - sd_bio: odchylenie standardowe MIĘDZY powtórzeniami biologicznymi -
+        NaN gdy n_bio<2 (nie ma czego liczyć - pandas .std(ddof=1) na
+        jednym punkcie zwraca NaN). NIGDY nie jest to rozproszenie
+        techniczne - te dwa rodzaje zmienności nie są tu mieszane.
+    """
+    means = df_bio.groupby(group_col)[COL_MEASUREMENT].mean().reset_index(name='mean')
+    n_bio = df_bio.groupby(group_col)[COL_MEASUREMENT].size().reset_index(name='n_bio')
+    sd_bio = df_bio.groupby(group_col)[COL_MEASUREMENT].std().reset_index(name='sd_bio')
+    n_tech = df_bio.groupby(group_col)['n_tech'].sum().reset_index(name='n_tech')
+    summary = means.merge(n_bio, on=group_col).merge(sd_bio, on=group_col).merge(n_tech, on=group_col)
+    return summary
+
+def has_low_n_bio(df_bio, group_col=COL_GROUP):
+    """
+    True jeśli KTÓRAKOLWIEK grupa w df_bio (już zagregowanym do powtórzeń
+    biologicznych) ma n_bio<2 - tzn. porównanie obejmuje przynajmniej jedną
+    grupę bez replikacji biologicznej, więc istotność wyniku dla całej
+    analizy jest tylko orientacyjna.
+    """
+    return bool((df_bio.groupby(group_col)[COL_MEASUREMENT].size() < 2).any())
