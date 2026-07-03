@@ -12,6 +12,8 @@ from config import (
     COL_REP_BIO, COL_REP_TECH, TYPE_NEG_CONTROL, TYPE_POS_CONTROL, VALID_TYPES,
     INTERNAL_TYPE_COL, INTERNAL_SUBSTANCE_COL, INTERNAL_CONC_COL, INTERNAL_UNIT_COL,
     INTERNAL_REP_BIO_COL, INTERNAL_REP_TECH_COL,
+    SHEET_DIFFUSION, SHEET_MIC_VISUAL, SHEET_MIC_OD, SHEET_MBC, SHEET_CONTROLS,
+    KNOWN_SHEET_NAMES, ANALYSIS_DIFFUSION, ANALYSIS_MIC, ANALYSIS_MBC,
 )
 
 # --- SORTOWANIE I PARSOWANIE ---
@@ -383,6 +385,135 @@ def validate_and_normalize(df):
     cleaned_df, rejected = validate_excel_data(df, bacteria_col)
     df_internal, format_info = build_internal_representation(cleaned_df)
     return df_internal, bacteria_col, rejected, [], format_info
+
+# --- ROUTER WIELOARKUSZOWY (MIC/MBC Faza 1: wykrywanie i wybór) ---
+def _read_named_sheet_if_present(xls, sheet_name):
+    """
+    Czyta named arkusz z już otwartego pd.ExcelFile, jeśli istnieje i ma
+    jakiekolwiek dane (po odrzuceniu w pełni pustych wierszy). Zwraca None,
+    gdy arkusz nie istnieje albo jest pusty - nigdy nie traktuje tego jako
+    błąd/wyjątek, to normalny, oczekiwany przypadek w wieloarkuszowym pliku.
+    """
+    if sheet_name not in xls.sheet_names:
+        return None
+    df = pd.read_excel(xls, sheet_name=sheet_name)
+    df.columns = df.columns.str.strip()
+    df = df.dropna(how='all')
+    if df.empty:
+        return None
+    for col in df.select_dtypes(['object']).columns:
+        df[col] = df[col].str.strip()
+    return df
+
+def _strain_substance_pairs(df):
+    """Zbiór (szczep, substancja) obecnych w df - pusty zbiór gdy df=None
+    albo brakuje kolumny bakterii/Substancja."""
+    if df is None:
+        return set()
+    bact_col = find_bacteria_column(df)
+    if bact_col is None or COL_SUBSTANCE not in df.columns:
+        return set()
+    sub_df = df[[bact_col, COL_SUBSTANCE]].dropna()
+    return set((str(b).strip(), str(s).strip()) for b, s in zip(sub_df[bact_col], sub_df[COL_SUBSTANCE]))
+
+def route_workbook(path):
+    """
+    FAZA 1 routera wieloarkuszowego (MIC/MBC): wykrywa, które arkusze danych
+    (Dane_dyfuzja / MIC_wizualny / MIC_OD / MBC_posiew) są obecne i niepuste,
+    i buduje mapę dostępności analiz per szczep. NIE liczy żadnej analizy
+    MIC/MBC - to kolejne fazy. Nigdy nie rzuca wyjątku z powodu brakujących/
+    pustych arkuszy - to są normalne, obsługiwane przypadki, nie błędy.
+    Instrukcja i Ustawienia są zawsze ignorowane.
+
+    Wsteczna zgodność: jeśli plik nie zawiera ŻADNEGO ze znanych arkuszy
+    (KNOWN_SHEET_NAMES), jest traktowany jako stary, jednoarkuszowy format -
+    domyślny/pierwszy arkusz idzie dotychczasową ścieżką dyfuzji
+    (read_excel_any_format), bez żadnej zmiany zachowania.
+
+    Zwraca dict:
+      - is_legacy_single_sheet (bool)
+      - sheets_present (dict[str, bool]): dla Dane_dyfuzja/MIC_wizualny/MIC_OD/MBC_posiew/Kontrole
+      - diffusion_raw_df / mic_wizualny_raw_df / mic_od_raw_df / mbc_raw_df /
+        controls_raw_df (DataFrame | None)
+      - availability (dict[str, dict[str, bool]]): {szczep: {"dyfuzja":.., "mic":.., "mbc":..}}
+      - warnings (list[str]): np. ten sam szczep+substancja w MIC_wizualny I MIC_OD
+      - errors (list[str]): np. plik bez żadnych danych do analizy
+    """
+    xls = pd.ExcelFile(path)
+    sheet_names = xls.sheet_names
+    is_legacy = not any(s in sheet_names for s in KNOWN_SHEET_NAMES)
+
+    result = {
+        "is_legacy_single_sheet": is_legacy,
+        "sheets_present": {},
+        "diffusion_raw_df": None,
+        "mic_wizualny_raw_df": None,
+        "mic_od_raw_df": None,
+        "mbc_raw_df": None,
+        "controls_raw_df": None,
+        "availability": {},
+        "warnings": [],
+        "errors": [],
+    }
+
+    if is_legacy:
+        df_diff = read_excel_any_format(path)
+        df_diff = df_diff.dropna(how='all')
+        result["diffusion_raw_df"] = df_diff if not df_diff.empty else None
+        result["sheets_present"][SHEET_DIFFUSION] = result["diffusion_raw_df"] is not None
+    else:
+        result["diffusion_raw_df"] = _read_named_sheet_if_present(xls, SHEET_DIFFUSION)
+        result["sheets_present"][SHEET_DIFFUSION] = result["diffusion_raw_df"] is not None
+
+        result["mic_wizualny_raw_df"] = _read_named_sheet_if_present(xls, SHEET_MIC_VISUAL)
+        result["sheets_present"][SHEET_MIC_VISUAL] = result["mic_wizualny_raw_df"] is not None
+
+        result["mic_od_raw_df"] = _read_named_sheet_if_present(xls, SHEET_MIC_OD)
+        result["sheets_present"][SHEET_MIC_OD] = result["mic_od_raw_df"] is not None
+
+        result["mbc_raw_df"] = _read_named_sheet_if_present(xls, SHEET_MBC)
+        result["sheets_present"][SHEET_MBC] = result["mbc_raw_df"] is not None
+
+        result["controls_raw_df"] = _read_named_sheet_if_present(xls, SHEET_CONTROLS)
+        result["sheets_present"][SHEET_CONTROLS] = result["controls_raw_df"] is not None
+        # SHEET_INSTRUCTIONS / SHEET_SETTINGS: celowo nigdy nie czytane.
+
+    # --- Mapa dostępności per szczep ---
+    availability = {}
+
+    def _register(df, analysis_key):
+        if df is None:
+            return
+        bact_col = find_bacteria_column(df)
+        if bact_col is None:
+            return
+        for strain in sorted(set(df[bact_col].dropna().astype(str).str.strip()) - {""}):
+            availability.setdefault(strain, {a: False for a in (ANALYSIS_DIFFUSION, ANALYSIS_MIC, ANALYSIS_MBC)})
+            availability[strain][analysis_key] = True
+
+    _register(result["diffusion_raw_df"], ANALYSIS_DIFFUSION)
+    _register(result["mic_wizualny_raw_df"], ANALYSIS_MIC)
+    _register(result["mic_od_raw_df"], ANALYSIS_MIC)
+    _register(result["mbc_raw_df"], ANALYSIS_MBC)
+
+    result["availability"] = availability
+
+    # --- Kolizja MIC_wizualny vs MIC_OD: ten sam szczep+substancja w obu ---
+    pairs_v = _strain_substance_pairs(result["mic_wizualny_raw_df"])
+    pairs_od = _strain_substance_pairs(result["mic_od_raw_df"])
+    for bact, sub in sorted(pairs_v & pairs_od):
+        result["warnings"].append(
+            f"'{bact}' / '{sub}': dane MIC występują zarówno w arkuszu '{SHEET_MIC_VISUAL}', jak i "
+            f"'{SHEET_MIC_OD}'. Na razie oba są tylko odnotowane - sposób rozstrzygania, który tryb ma "
+            f"pierwszeństwo, zostanie zaimplementowany w kolejnej fazie."
+        )
+
+    if not availability:
+        result["errors"].append(
+            "Plik nie zawiera żadnych danych do analizy (wszystkie arkusze danych są puste lub nieobecne)."
+        )
+
+    return result
 
 # --- POWTÓRZENIA: AGREGACJA TECHNICZNYCH, PODSUMOWANIE BIOLOGICZNYCH ---
 def aggregate_technical_replicates(df, bacteria_col):
