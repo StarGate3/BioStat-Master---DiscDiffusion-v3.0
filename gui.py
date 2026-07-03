@@ -553,6 +553,13 @@ Error bars represent standard deviation. This overview highlights the differenti
             s = summary_res['main_stats'][0]
             self.log(f"Stat: {s['Statistic']:.2f}, p={s['p-value']:.6f}")
 
+        if summary_res['test_used'] == "ANOVA":
+            self.log(
+                f"UWAGA: Tukey HSD ma wbudowaną własną korektę wielokrotnych porównań. "
+                f"Wybrana metoda post-hoc ('{method}') NIE ma tu zastosowania - dotyczy wyłącznie "
+                f"ścieżki Kruskal-Wallis/Dunn."
+            )
+
         # 4. POST HOC DETALE (Delegacja)
         detailed, sig_set = self.stats_engine.process_detailed_results(posthoc_df, df_run, ref_group, summary_res['test_used'])
         self.posthoc_detailed_results = detailed
@@ -682,7 +689,8 @@ Error bars represent standard deviation. This overview highlights the differenti
             'date': datetime.now().strftime('%Y-%m-%d %H:%M'),
             'bact': self.combo_bact.get(),
             'method': self.combo_method.get(),
-            'ref': self.combo_ref.get()
+            'ref': self.combo_ref.get(),
+            'test_used': self.export_stats_main[0]['Test'] if self.export_stats_main else "",
         }
         
         success, msg = reports.generate_pdf(

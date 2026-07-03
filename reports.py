@@ -49,7 +49,19 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
             f"<b>Grupa referencyjna (kontrola, do której porównywano istotność):</b> {metadata['ref']}"
         )
         elements.append(Paragraph(meta_text, styles['Normal']))
-        elements.append(Spacer(1, 24))
+        elements.append(Spacer(1, 12))
+
+        if metadata.get('test_used') == "ANOVA":
+            elements.append(Paragraph(
+                "UWAGA: dla testu ANOVA porównania parami wykonano testem Tukey HSD, który ma "
+                f"wbudowaną własną korektę wielokrotnych porównań. Wybrana metoda post-hoc "
+                f"('{metadata['method']}') NIE ma tu zastosowania - dotyczy wyłącznie ścieżki "
+                "Kruskal-Wallis/Dunn.",
+                styles['Normal']
+            ))
+            elements.append(Spacer(1, 12))
+
+        elements.append(Spacer(1, 12))
 
         # 2. Tabela Statystyk
         if stats_summary is not None:
