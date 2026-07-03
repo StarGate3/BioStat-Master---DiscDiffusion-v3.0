@@ -200,7 +200,7 @@ class Plotter:
         fig.tight_layout()
         return fig
 
-    def draw_trend(self, df, bact, mic_data=None):
+    def draw_trend(self, df, bact):
         f_lbl = self.config["font_labels"]
         f_ttl = self.config["font_title"]
         pal = self.config["palette"]
@@ -243,23 +243,6 @@ class Plotter:
                 else: correlations.append(f"{sub}: brak zmienności")
         
         if correlations:
-            # Dodaj MIC do boxa
-            if mic_data:
-                correlations.append(f"\n[MIC Estimates (D={DISC_DIAMETER_MM:g}mm)]")
-                status_short = {
-                    "za_malo_stezen": "za mało stężeń",
-                    "blad_regresji": "błąd regresji",
-                    "ujemny_slope": "ujemny trend",
-                    "slabe_dopasowanie": "słabe dopasowanie (R²)",
-                }
-                for sub, res in mic_data.items():
-                    if res and res.get('MIC') is not None:
-                        flag = " ⚠eks." if res.get('Extrapolated') else ""
-                        correlations.append(f"{sub}: {res['MIC']:.2f} {res['Unit']}{flag}")
-                    else:
-                        label = status_short.get(res.get('Status') if res else None, "niedostępne")
-                        correlations.append(f"{sub}: MIC - {label}")
-
             ax.text(0.02, 0.95, "\n".join(correlations), transform=ax.transAxes, fontsize=f_lbl, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
         fig.tight_layout()
         return fig, None

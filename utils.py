@@ -100,28 +100,6 @@ def select_reference_group(df_subset, group_col=COL_GROUP, type_col=INTERNAL_TYP
     groups = sorted(df_subset[group_col].unique(), key=smart_sort_key)
     return select_negative_control(groups)
 
-def detect_selected_substances(df_run, selected_groups):
-    """
-    Zwraca posortowaną listę unikalnych nazw substancji do estymacji MIC dla
-    wybranych grup `selected_groups` w `df_run`.
-
-    Gdy dostępna jest ustrukturyzowana kolumna INTERNAL_SUBSTANCE_COL (nowy
-    format, wypełniona wprost z kolumny Substancja) używa jej bezpośrednio -
-    to eliminuje ryzyko pomylenia kodu substancji (np. "55-156") ze
-    stężeniem, bo nic nie jest tu parsowane z tekstu. W przeciwnym razie
-    (stary format) parsuje nazwę grupy jak dotychczas.
-    """
-    if INTERNAL_SUBSTANCE_COL in df_run.columns and df_run[INTERNAL_SUBSTANCE_COL].notna().any():
-        rows = df_run[df_run[COL_GROUP].isin(selected_groups)]
-        return sorted(rows[INTERNAL_SUBSTANCE_COL].dropna().unique().tolist())
-
-    subs = set()
-    for g in selected_groups:
-        s, _, _ = parse_concentration(g)
-        if s:
-            subs.add(s)
-    return sorted(subs)
-
 # --- STATYSTYKA: EFFECT SIZE ---
 def calculate_cohens_d(group1_data, group2_data):
     n1, n2 = len(group1_data), len(group2_data)

@@ -13,8 +13,8 @@ import re
 # ============================================================
 
 DISC_DIAMETER_MM: float = 6.0
-"""Paper-disc diameter used in disc-diffusion assays. This is also the
-target zone diameter the log-linear MIC extrapolation solves for."""
+"""Paper-disc diameter used in disc-diffusion assays. Drawn as a
+reference line on the main comparison plot."""
 
 ALPHA: float = 0.05
 """Statistical significance threshold. Applied to Shapiro-Wilk normality
@@ -71,7 +71,7 @@ EXPORT_DPI: int = 300
 CONCENTRATION_UNITS: tuple = ('mg/ml', 'ug/ml', '%')
 """Unit strings recognized inside group labels such as 'Extract (50 mg/ml)'.
 Used by utils.parse_concentration to extract the numeric concentration
-and the unit for dose-response plots and MIC extrapolation."""
+and the unit for the dose-response trend plot."""
 
 _UNITS_ALT = '|'.join(re.escape(u) for u in CONCENTRATION_UNITS)
 CONCENTRATION_SEARCH_PATTERN: str = r"([\d,.]+)\s*(" + _UNITS_ALT + r")"
@@ -109,21 +109,6 @@ REF_PLACEHOLDER: str = "-- Wybierz ręcznie (niejednoznaczne) --"
 """Sentinel shown in the reference-group dropdown when auto-detection could
 not unambiguously identify a negative control. Never a real group name;
 run_analysis refuses to proceed while this value is selected."""
-
-# ============================================================
-# MIC ESTIMATION - QUALITY GATE
-# ============================================================
-
-MIC_MIN_R2: float = 0.80
-"""Minimum R^2 (log-linear fit quality) required to report a numeric MIC
-estimate as reliable. Below this threshold the MIC is suppressed (not
-shown as a number) and flagged as unreliable instead. This is a pragmatic
-screening-tool bar, not a validated bioanalytical-method-validation
-threshold: strict enough to reject poor fits, but not so strict that a
-3-point biological dose-response curve (the practical minimum this
-regression accepts) gets rejected outright. Extrapolation beyond the
-tested concentration range is flagged separately (see estimate_mic),
-independent of this threshold."""
 
 # ============================================================
 # NOWY FORMAT WEJŚCIOWY (arkusz "Dane" z powtórzeniami bio/tech)

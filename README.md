@@ -21,7 +21,7 @@
 Generates high-resolution, publication-quality figures using `Matplotlib` and `Seaborn`:
 1.  **Main Comparison Plot**: Barplots, Boxplots, or Violinplots with significance asterisks.
 2.  **Heatmaps**: Activity heatmaps and P-value significance matrices.
-3.  **Dose-Response Trends**: Line plots with Spearman correlation coefficients and **MIC Estimation** (Minimal Inhibitory Concentration).
+3.  **Dose-Response Trends**: Line plots with Spearman correlation coefficients.
 4.  **Effect Size Plot**: Lollipop charts visualizing the strength of differences (Cohen's d).
 5.  **Cross-Species Comparison**: Summary view of activity across multiple bacterial strains.
 6.  **PCA Analysis**: Principal Component Analysis to cluster bacterial strains based on their sensitivity profiles.

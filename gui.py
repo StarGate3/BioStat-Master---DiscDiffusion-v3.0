@@ -521,7 +521,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.export_data_raw = df_run
 
         # 2b. AGREGACJA POWTÓRZEŃ TECHNICZNYCH (Delegacja)
-        # Testy istotności, post-hoc, MIC i wykresy statystyczne liczą się na
+        # Testy istotności, post-hoc i wykresy statystyczne liczą się na
         # średnich BIOLOGICZNYCH (n_bio), nie na surowych wierszach - inaczej
         # powtórzenia techniczne liczyłyby się jako niezależne obserwacje
         # (pseudoreplikacja, zawyżona moc / zaniżone p-value).
@@ -593,22 +593,8 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.display_plot(lambda: self.plotter.draw_heatmap(df_bio, bact), self.tab_heatmap, 'heat')
         self.display_plot(lambda: self.plotter.draw_pvalue_heatmap(self.export_stats_posthoc, bact), self.tab_pvalue, 'pvalue')
 
-        # MIC ESTIMATION (na średnich biologicznych per stężenie)
-        unique_subs = utils.detect_selected_substances(df_bio, wybrane)
-
-        mic_results = self.stats_engine.estimate_mic(df_bio, unique_subs)
-        
-        if mic_results:
-            self.log("\n[4] Oszacowane MIC (Theoretical):")
-            for sub, res in mic_results.items():
-                if res['MIC'] is not None:
-                    flag = " ⚠ EKSTRAPOLACJA POZA ZBADANY ZAKRES" if res.get('Extrapolated') else ""
-                    self.log(f"{sub}: {res['MIC']:.3f} {res['Unit']} (R2={res['R2']:.2f}){flag}")
-                else:
-                    self.log(f"{sub}: MIC niedostępne - {res['Reason']}")
-
-        # Pass mic_results to draw_trend (na średnich biologicznych)
-        fig_trend, err = self.plotter.draw_trend(df_bio, bact, mic_data=mic_results)
+        # Wykres trendu dawka-odpowiedź (na średnich biologicznych)
+        fig_trend, err = self.plotter.draw_trend(df_bio, bact)
         if fig_trend:
              self.display_figure(fig_trend, self.tab_trend, 'trend')
         elif err:

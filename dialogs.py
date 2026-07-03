@@ -1,5 +1,5 @@
 import customtkinter as ctk
-from config import ALPHA, DISC_DIAMETER_MM
+from config import ALPHA
 
 # ======================================================
 # OKNO DIALOGOWE - OUTLIERY (DIXON)
@@ -154,11 +154,7 @@ class HelpDialog(ctk.CTkToplevel):
                        "• Zacieniony obszar: Przedział ufności (95% CI).\n"
                        "• r (korelacja): Mówi, jak mocno stężenie wpływa na wynik (blisko 1.0 = idealna zależność).")
 
-        self.add_entry("Szacowanie MIC (Minimalne Stężenie Hamujące)",
-                       f"Program wyznacza teoretyczne MIC na podstawie punktu przecięcia linii trendu z osią średnicy krążka ({DISC_DIAMETER_MM:g} mm). "
-                       f"Jest to model matematyczny logarytmiczno-liniowy. Wynik jest szacunkowy i służy do porównania siły substancji.")
-
-        self.add_entry("Porównanie Międzygatunkowe", 
+        self.add_entry("Porównanie Międzygatunkowe",
                        "Zestawienie działania wybranych substancji na wszystkie badane szczepy bakterii jednocześnie. "
                        "Pozwala ocenić spektrum działania (czy substancja działa na wszystko, czy tylko wybiórczo).")
 
