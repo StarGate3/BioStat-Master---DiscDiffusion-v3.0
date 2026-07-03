@@ -2,7 +2,7 @@ customtkinter
 matplotlib
 numpy
 openpyxl
-pandas
+pandas>=2,<3
 reportlab
 scikit-learn
 scikit-posthocs

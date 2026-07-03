@@ -145,20 +145,27 @@ class Plotter:
         if export_stats_posthoc is None:
             return None
 
+        # NOTE: under pandas >=3's Copy-on-Write, a DataFrame's `.values`
+        # backing buffer can stay read-only even after `.copy()` (confirmed
+        # in audit), so np.fill_diagonal must always write into a fresh,
+        # independently-allocated numpy array - never directly into a
+        # DataFrame's `.values`.
         p_matrix = None
         if 'group1' in export_stats_posthoc.columns: # Tukey
             df_res = export_stats_posthoc
             groups = sorted(list(set(df_res['group1']) | set(df_res['group2'])))
-            p_matrix = pd.DataFrame(index=groups, columns=groups, dtype=float)
-            np.fill_diagonal(p_matrix.values, 1.0) 
+            idx = {g: i for i, g in enumerate(groups)}
+            arr = np.ones((len(groups), len(groups)), dtype=float)
             for _, row in df_res.iterrows():
-                g1, g2 = row['group1'], row['group2']
+                i, j = idx[row['group1']], idx[row['group2']]
                 pval = row['p-adj']
-                p_matrix.at[g1, g2] = pval
-                p_matrix.at[g2, g1] = pval
+                arr[i, j] = pval
+                arr[j, i] = pval
+            p_matrix = pd.DataFrame(arr, index=groups, columns=groups)
         else: # Dunn
-            p_matrix = export_stats_posthoc.copy()
-            np.fill_diagonal(p_matrix.values, 1.0)
+            arr = np.asarray(export_stats_posthoc, dtype=float).copy()
+            np.fill_diagonal(arr, 1.0)
+            p_matrix = pd.DataFrame(arr, index=export_stats_posthoc.index, columns=export_stats_posthoc.columns)
 
         if p_matrix is None: return None
 
