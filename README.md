@@ -33,6 +33,25 @@ Generates high-resolution, publication-quality figures using `Matplotlib` and `S
 
 ---
 
+## 🧫 MIC/MBC Module (Broth Microdilution)
+
+In addition to disk diffusion, BioStat Master supports **MIC (Minimum Inhibitory Concentration)** and **MBC (Minimum Bactericidal Concentration)** analysis from broth microdilution assays, loaded from the same multi-sheet Excel workbook as the diffusion data (sheets `Dane_dyfuzja`, `MIC_wizualny`, `MIC_OD`, `MBC_posiew`, `Kontrole`, `Instrukcja`, `Ustawienia`). **The legacy single-sheet format is still fully supported** — existing diffusion-only files load and analyze exactly as before, with no changes required and no new sheets to add.
+
+*   **Reading modes**:
+    *   *Visual* (`MIC_wizualny`): well-by-well growth/no-growth calls ("wzrost"/"brak").
+    *   *OD* (`MIC_OD`): optical-density readings interpreted via a **relative threshold** against that run's own growth and sterility controls (not a fixed absolute OD cutoff), so plate-to-plate baseline differences don't bias the call.
+    *   *MBC* (`MBC_posiew`): colony-count (CFU) readings after subculture, converted to a % reduction vs. the inoculum (`Inokulum_CFU_t0`); a well is scored "killed" once **reduction ≥ 99.9% (3-log10)** — the standard clinical definition of bactericidal activity, not an author-chosen threshold.
+*   **Run validity**: every run is checked against BOTH its growth control (must show adequate growth) AND its sterility control (must show no contamination), **independently** — a strong growth control can never mask a contaminated sterility control.
+*   **Log2 scale**: all MIC/MBC arithmetic (replicate aggregation, medians, group comparisons, the MBC/MIC ratio) happens on the **log2 dilution-index scale**, never on raw concentration — this is what makes "median MIC" and "difference in dilutions" statistically meaningful for a two-fold dilution series.
+*   **Replicates**: technical replicates within one biological replicate collapse to a single value via a **high-median rule** (for an even count, the *higher* of the two middle values is kept — never an interpolated number), so censored calls propagate automatically instead of being silently "fixed" to a number. Biological replicates are then summarized per bacterium × substance: median, range, mode, and geometric mean (**never** the arithmetic mean).
+*   **Censoring**: values at the edge of the tested range are always reported as `≤`/`>` bounds, never as a bare number, and are ranked accordingly (always lowest/highest) in any statistical comparison.
+*   **Group comparisons**: the same three-layer approach as diffusion — Layer 1 (dilution difference + a configurable "meaningful difference" threshold, default ≥2 dilutions) is always available; Layer 2 (Mann-Whitney, or Kruskal-Wallis + Dunn's post-hoc for >2 groups) is computed when the data support it; Layer 3 guards suppress the p-value (with an explicit stated reason) when censoring is too heavy or too few biological replicates exist — a p-value is never fabricated.
+*   **MBC/MIC ratio & classification**: computed on the dilution-index difference `d = log2(MBC) − log2(MIC)` (displayed as `2^d`). `d ≤ 2` → **bactericidal**; `d ≥ 3` → **bacteriostatic**. When either value is censored, the classification is only made if the resulting bound is unambiguous — otherwise the result is reported as **undetermined**, with the tightest ratio bound shown (e.g. "≥8"), never guessed. A structural consistency check flags any case where MBC would have to be smaller than MIC.
+*   **n_bio = 1 warning**: exactly like the diffusion module, a result based on a single biological replicate is still computed and shown, but carries an explicit "no biological replication" banner on every affected plot, table, and report — consistent across the whole application.
+*   **Outputs**: MIC/MBC distribution plots, MIC↔MBC pair/gap plots (color-coded by classification), cross-substance comparison plots, and a publication-ready summary table — exported into the same PDF report and Excel workbook as the diffusion results (one combined report when a strain has data for both methods).
+
+---
+
 ## 🛠️ Installation & Requirements
 
 Ensure you have **Python 3.8+** installed.
@@ -68,9 +87,12 @@ Ensure you have **Python 3.8+** installed.
 The application follows a clean, modular Model-View-Controller (MVC) pattern for maintainability:
 
 *   **`gui.py` (View/Controller)**: Handles the user interface using `customtkinter`. Orchestrates the application flow.
-*   **`logic.py` (Model)**: Contains the `StatsEngine`. Pure Python class responsible for all statistical calculations (Shapiro, Levene, ANOVA/KW, Post-hoc). independent of the GUI.
-*   **`plotting.py` (View)**: Contains the `Plotter` class. Encapsulates all `matplotlib` figure generation logic.
-*   **`utils.py`**: Helper functions for outlier detection (Dixon), robust sorting, and string parsing.
+*   **`logic.py` (Model)**: Contains the `StatsEngine`. Pure Python class responsible for all disk-diffusion statistical calculations (Shapiro, Levene, ANOVA/KW, Post-hoc). Independent of the GUI.
+*   **`plotting.py` (View)**: Contains the `Plotter` class. Encapsulates all disk-diffusion `matplotlib` figure generation logic.
+*   **`mic_logic.py` (Model)**: MIC/MBC well-reading engine, technical→biological replicate aggregation, cross-group comparisons, and the MBC/MIC ratio/classification. Independent of the GUI, mirrors `logic.py`'s role for the MIC/MBC module.
+*   **`mic_plotting.py` (View)**: MIC/MBC figure generation (distribution, MIC↔MBC pairs, group comparison) — mirrors `plotting.py`'s role.
+*   **`reports.py`**: Builds the PDF report (diffusion and/or MIC/MBC sections) and the MIC/MBC Excel export.
+*   **`utils.py`**: Helper functions for outlier detection (Dixon), robust sorting, string parsing, and multi-sheet workbook routing (`route_workbook`).
 
 ---
 
