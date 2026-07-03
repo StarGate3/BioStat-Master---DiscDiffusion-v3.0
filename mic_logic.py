@@ -17,6 +17,7 @@ from config import (
     MIC_STATUS_INVALID_RUN, MIC_STATUS_MISSING_CONTROLS,
     COL_RUN, COL_STEZ_S1, COL_DILUTION_FACTOR, WELL_COLUMNS,
     WELL_STATUS_GROWTH, WELL_STATUS_NO_GROWTH, MIC_OD_GROWTH_THRESHOLD, MIC_OD_MIN_GROWTH_SIGNAL,
+    MIC_OD_STERILITY_MAX,
     COL_SUBSTANCE, COL_TYPE, COL_UNIT, COL_REP_BIO, COL_REP_TECH,
     COL_GROWTH_CONTROL, COL_STERILITY_CONTROL,
 )
@@ -206,9 +207,10 @@ def classify_od_well(od_value, kontrola_wzrostu, kontrola_jalowosci, threshold=M
 
 def lookup_controls(controls_df, przebieg):
     """
-    Zwraca dict {Kontrola_wzrostu, Kontrola_jalowosci} dla danego Przebiegu,
-    albo None gdy controls_df jest None, Przebieg jest pusty, albo nie ma
-    dopasowania w arkuszu Kontrole.
+    Zwraca dict {Kontrola_wzrostu, Kontrola_jalowosci} (wartości SUROWE - mogą
+    być liczbą OD albo tekstem "wzrost"/"brak", patrz validate_run) dla danego
+    Przebiegu, albo None gdy controls_df jest None, Przebieg jest pusty, albo
+    nie ma dopasowania w arkuszu Kontrole.
     """
     if controls_df is None or pd.isna(przebieg):
         return None
@@ -222,30 +224,77 @@ def lookup_controls(controls_df, przebieg):
     }
 
 
-def validate_run(kontrola_wzrostu, kontrola_jalowosci):
-    """
-    Sprawdza, czy przebieg jest wiarygodny na podstawie kontroli OD:
-    różnica (Kontrola_wzrostu - Kontrola_jalowosci) musi wynosić co najmniej
-    MIC_OD_MIN_GROWTH_SIGNAL. Ten jeden test celowo pokrywa oba przypadki
-    z zadania: kontrola wzrostu, która realnie nie urosła, ORAZ kontrola
-    jałowości sugerująca skażenie - obie pchają tę różnicę w stronę zera.
+def _try_parse_numeric_control(value):
+    """Zwraca float(value) jeśli to rzeczywiście liczba (OD), inaczej None
+    (obejmuje NaN/puste i tekst typu "wzrost"/"brak")."""
+    if pd.isna(value) or isinstance(value, str):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
-    Zwraca (is_valid: bool, reason: str | None).
+
+def validate_run(kontrola_wzrostu_raw, kontrola_jalowosci_raw):
     """
-    signal = kontrola_wzrostu - kontrola_jalowosci
-    if signal < MIC_OD_MIN_GROWTH_SIGNAL:
-        if kontrola_jalowosci >= kontrola_wzrostu:
-            reason = (
-                f"Kontrola jałowości ({kontrola_jalowosci:g} OD) >= kontrola wzrostu "
-                f"({kontrola_wzrostu:g} OD) - podejrzenie skażenia podłoża. Przebieg nieważny."
+    Sprawdza WAŻNOŚĆ przebiegu DWOMA NIEZALEŻNYMI warunkami - żaden nie może
+    zamaskować drugiego (np. bardzo wysoka kontrola wzrostu nie "odkupuje"
+    skażonej kontroli jałowości):
+
+      a) Kontrola wzrostu musi realnie urosnąć:
+         liczbowo: (Kontrola_wzrostu - Kontrola_jalowosci) >= MIC_OD_MIN_GROWTH_SIGNAL
+         tekstowo: wartość != "brak" (patrz WELL_STATUS_NO_GROWTH)
+      b) Kontrola jałowości musi pozostać czysta:
+         liczbowo: Kontrola_jalowosci <= MIC_OD_STERILITY_MAX (próg BEZWZGLĘDNY,
+                   niezależny od poziomu kontroli wzrostu)
+         tekstowo: wartość != "wzrost" (patrz WELL_STATUS_GROWTH)
+
+    Działa identycznie niezależnie od trybu odczytu MIC (wizualny/OD) - liczy
+    się tylko to, czy KONKRETNA kontrola dla tego Przebiegu jest podana
+    liczbowo czy tekstowo, ocenianie każdej z dwóch kontroli jest niezależne.
+
+    Gdy dana kontrola nie jest ani liczbą, ani rozpoznanym tekstem (brak
+    wpisu/nierozpoznana wartość), TEN warunek jest pomijany (nie da się
+    zweryfikować - nie blokujemy z tego powodu, zgodnie z dotychczasowym
+    zachowaniem dla brakujących kontroli).
+
+    Zwraca (is_valid: bool, reason: str | None); reason jasno wskazuje, który
+    warunek (albo oba) zawiódł.
+    """
+    problems = []
+
+    kw_num = _try_parse_numeric_control(kontrola_wzrostu_raw)
+    kj_num = _try_parse_numeric_control(kontrola_jalowosci_raw)
+
+    # --- a) Kontrola wzrostu ---
+    if kw_num is not None and kj_num is not None:
+        signal = kw_num - kj_num
+        if signal < MIC_OD_MIN_GROWTH_SIGNAL:
+            problems.append(
+                f"kontrola wzrostu nie urosła wystarczająco (sygnał po odjęciu tła = {signal:g} OD, "
+                f"wymagane >= {MIC_OD_MIN_GROWTH_SIGNAL:g} OD)"
             )
-        else:
-            reason = (
-                f"Sygnał kontroli wzrostu po odjęciu tła ({signal:g} OD) poniżej minimum "
-                f"({MIC_OD_MIN_GROWTH_SIGNAL:g} OD) - kontrola wzrostu nie urosła wystarczająco. "
-                f"Przebieg nieważny."
+    else:
+        kw_bool = classify_wizualny_well(kontrola_wzrostu_raw)
+        if kw_bool is False:
+            problems.append("kontrola wzrostu nie urosła (odczyt wizualny: 'brak')")
+        # kw_bool is True ("wzrost") -> warunek spełniony; None -> nie da się zweryfikować, pomijamy.
+
+    # --- b) Kontrola jałowości (próg BEZWZGLĘDNY, niezależny od a) ---
+    if kj_num is not None:
+        if kj_num > MIC_OD_STERILITY_MAX:
+            problems.append(
+                f"kontrola jałowości wskazuje skażenie podłoża ({kj_num:g} OD, dopuszczalne "
+                f"<= {MIC_OD_STERILITY_MAX:g} OD)"
             )
-        return False, reason
+    else:
+        kj_bool = classify_wizualny_well(kontrola_jalowosci_raw)
+        if kj_bool is True:
+            problems.append("kontrola jałowości wskazuje skażenie podłoża (odczyt wizualny: 'wzrost')")
+        # kj_bool is False ("brak") -> warunek spełniony; None -> nie da się zweryfikować, pomijamy.
+
+    if problems:
+        return False, "Przebieg nieważny: " + " ORAZ ".join(problems) + "."
     return True, None
 
 
@@ -284,22 +333,24 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
     base = _base_fields(row, bact_col)
     przebieg = row.get(COL_RUN)
     ctrl = lookup_controls(controls_df, przebieg)
-    has_numeric_ctrl = (
-        ctrl is not None
-        and pd.notna(ctrl.get(COL_GROWTH_CONTROL))
-        and pd.notna(ctrl.get(COL_STERILITY_CONTROL))
-    )
+    kw_num = _try_parse_numeric_control(ctrl.get(COL_GROWTH_CONTROL)) if ctrl is not None else None
+    kj_num = _try_parse_numeric_control(ctrl.get(COL_STERILITY_CONTROL)) if ctrl is not None else None
+    has_numeric_ctrl = kw_num is not None and kj_num is not None
 
     if mode == "od" and not has_numeric_ctrl:
         return _result(
             base, None, MIC_STATUS_MISSING_CONTROLS,
-            f"Brak wpisu kontroli (Kontrola_wzrostu/Kontrola_jalowosci) w arkuszu Kontrole dla "
+            f"Brak liczbowych kontroli (Kontrola_wzrostu/Kontrola_jalowosci) w arkuszu Kontrole dla "
             f"Przebiegu '{przebieg}' - wymagane do wyznaczenia tła i progu wzrostu OD.",
             None, [],
         )
 
-    if has_numeric_ctrl:
-        is_valid, invalid_reason = validate_run(ctrl[COL_GROWTH_CONTROL], ctrl[COL_STERILITY_CONTROL])
+    # Ważność przebiegu jest egzekwowana NIEZALEŻNIE OD TRYBU, zawsze gdy dla
+    # tego Przebiegu w ogóle podano jakiekolwiek kontrole (liczbowo lub
+    # tekstowo) - patrz validate_run. Gdy kontrole w ogóle nie zostały
+    # podane (ctrl is None), nie blokujemy - jak dotychczas.
+    if ctrl is not None:
+        is_valid, invalid_reason = validate_run(ctrl.get(COL_GROWTH_CONTROL), ctrl.get(COL_STERILITY_CONTROL))
         if not is_valid:
             return _result(base, None, MIC_STATUS_INVALID_RUN, invalid_reason, None, [])
 
@@ -329,7 +380,7 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
             if growth is None and pd.notna(raw_value):
                 parse_notes.append(f"{col}: nierozpoznana wartość {raw_value!r} - pominięto.")
         else:
-            growth = classify_od_well(raw_value, ctrl[COL_GROWTH_CONTROL], ctrl[COL_STERILITY_CONTROL])
+            growth = classify_od_well(raw_value, kw_num, kj_num)
         wells_detail.append({"well": col, "conc": conc, "raw": raw_value, "growth": growth})
         if growth is not None:
             conc_growth_pairs.append((conc, growth))

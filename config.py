@@ -220,13 +220,26 @@ częściowo zahamowanego, ale realnie rosnącego inokulum)."""
 
 MIC_OD_MIN_GROWTH_SIGNAL: float = 0.10
 """Minimalna wymagana różnica (Kontrola_wzrostu - Kontrola_jalowosci) w
-jednostkach OD, żeby uznać przebieg za ważny. Typowy odczyt OD pustej/
-jałowej studzienki mieści się w szumie rzędu 0.02-0.05 (błąd czytnika
-płytek); różnica poniżej 0.10 OD oznacza, że albo kontrola wzrostu
-realnie nie urosła, albo kontrola jałowości jest podejrzanie wysoka
-(prawdopodobne skażenie) - w obu przypadkach różnicowanie wzrost/brak
-w tym przebiegu nie jest wiarygodne. To pragmatyczny, konfigurowalny
-próg bezpieczeństwa, nie wartość z walidowanego protokołu klinicznego."""
+jednostkach OD, żeby uznać KONTROLĘ WZROSTU za wiarygodną (bakteria
+realnie urosła). To TYLKO jeden z dwóch niezależnych warunków ważności
+przebiegu - patrz MIC_OD_STERILITY_MAX dla drugiego (czystość podłoża).
+Rozdzielenie jest celowe: wysoka kontrola wzrostu nie może "maskować"
+skażonej kontroli jałowości, bo różnica mogłaby wciąż wyjść wystarczająco
+duża. Typowy odczyt OD pustej/jałowej studzienki mieści się w szumie
+rzędu 0.02-0.05 (błąd czytnika płytek), więc 0.10 to pragmatyczny,
+konfigurowalny próg bezpieczeństwa, nie wartość z walidowanego protokołu
+klinicznego."""
+
+MIC_OD_STERILITY_MAX: float = 0.20
+"""Maksymalna dopuszczalna wartość OD kontroli jałowości (Kontrola_jalowosci),
+NIEZALEŻNIE od poziomu kontroli wzrostu - powyżej tego progu podłoże uznaje
+się za skażone. Czysta/jałowa studzienka (samo podłoże, bez inokulum) daje
+zwykle OD rzędu 0.05-0.15 (mętność podłoża + szum czytnika); 0.20 zostawia
+margines nad typową zmiennością czystego blanku, jednocześnie wciąż łapiąc
+realne skażenie, które zwykle podnosi OD dużo wyżej (często porównywalnie
+do samej kontroli wzrostu, rzędu 0.3-1.0+). Podobnie jak
+MIC_OD_MIN_GROWTH_SIGNAL - to pragmatyczny próg narzędzia przesiewowego,
+nie wartość z walidowanego protokołu klinicznego."""
 
 COL_GROWTH_CONTROL: str = "Kontrola_wzrostu"
 COL_STERILITY_CONTROL: str = "Kontrola_jalowosci"

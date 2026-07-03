@@ -351,6 +351,20 @@ def build_internal_representation(df):
     format_info = {"has_type": has_type, "has_conc": has_conc, "has_reps": has_reps}
     return df, format_info
 
+def _strip_string_cells(df):
+    """
+    Przycina białe znaki TYLKO w komórkach będących faktycznie stringami,
+    zostawiając inne typy (liczby itp.) nietknięte. To jest bezpieczne nawet
+    dla kolumn o MIESZANYM typie (np. arkusz Kontrole, gdzie Kontrola_wzrostu
+    bywa liczbą OD dla jednych Przebiegów, a tekstem "wzrost"/"brak" dla
+    innych) - zwykłe `Series.str.strip()` na całej kolumnie object zamienia
+    elementy nie-stringowe na NaN, co po cichu niszczy liczby w takich
+    kolumnach.
+    """
+    for col in df.select_dtypes(['object']).columns:
+        df[col] = df[col].apply(lambda v: v.strip() if isinstance(v, str) else v)
+    return df
+
 def read_excel_any_format(path):
     """
     Wczytuje plik Excel: jeśli zawiera arkusz NEW_FORMAT_SHEET_NAME ('Dane'),
@@ -364,9 +378,7 @@ def read_excel_any_format(path):
     sheet = NEW_FORMAT_SHEET_NAME if NEW_FORMAT_SHEET_NAME in xls.sheet_names else 0
     df = pd.read_excel(xls, sheet_name=sheet)
     df.columns = df.columns.str.strip()
-    for col in df.select_dtypes(['object']).columns:
-        df[col] = df[col].str.strip()
-    return df
+    return _strip_string_cells(df)
 
 def validate_and_normalize(df):
     """
@@ -401,9 +413,7 @@ def _read_named_sheet_if_present(xls, sheet_name):
     df = df.dropna(how='all')
     if df.empty:
         return None
-    for col in df.select_dtypes(['object']).columns:
-        df[col] = df[col].str.strip()
-    return df
+    return _strip_string_cells(df)
 
 def _strain_substance_pairs(df):
     """Zbiór (szczep, substancja) obecnych w df - pusty zbiór gdy df=None
