@@ -225,11 +225,19 @@ class Plotter:
             # Dodaj MIC do boxa
             if mic_data:
                 correlations.append(f"\n[MIC Estimates (D={DISC_DIAMETER_MM:g}mm)]")
+                status_short = {
+                    "za_malo_stezen": "za mało stężeń",
+                    "blad_regresji": "błąd regresji",
+                    "ujemny_slope": "ujemny trend",
+                    "slabe_dopasowanie": "słabe dopasowanie (R²)",
+                }
                 for sub, res in mic_data.items():
-                    if res and res['MIC']:
-                        correlations.append(f"{sub}: {res['MIC']:.2f} {res['Unit']}")
+                    if res and res.get('MIC') is not None:
+                        flag = " ⚠eks." if res.get('Extrapolated') else ""
+                        correlations.append(f"{sub}: {res['MIC']:.2f} {res['Unit']}{flag}")
                     else:
-                        correlations.append(f"{sub}: > max conc?")
+                        label = status_short.get(res.get('Status') if res else None, "niedostępne")
+                        correlations.append(f"{sub}: MIC - {label}")
 
             ax.text(0.02, 0.95, "\n".join(correlations), transform=ax.transAxes, fontsize=f_lbl, verticalalignment='top', bbox=dict(boxstyle='round', facecolor='white', alpha=0.5))
         fig.tight_layout()

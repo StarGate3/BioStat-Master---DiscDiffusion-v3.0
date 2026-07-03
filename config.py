@@ -111,6 +111,21 @@ not unambiguously identify a negative control. Never a real group name;
 run_analysis refuses to proceed while this value is selected."""
 
 # ============================================================
+# MIC ESTIMATION - QUALITY GATE
+# ============================================================
+
+MIC_MIN_R2: float = 0.80
+"""Minimum R^2 (log-linear fit quality) required to report a numeric MIC
+estimate as reliable. Below this threshold the MIC is suppressed (not
+shown as a number) and flagged as unreliable instead. This is a pragmatic
+screening-tool bar, not a validated bioanalytical-method-validation
+threshold: strict enough to reject poor fits, but not so strict that a
+3-point biological dose-response curve (the practical minimum this
+regression accepts) gets rejected outright. Extrapolation beyond the
+tested concentration range is flagged separately (see estimate_mic),
+independent of this threshold."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 

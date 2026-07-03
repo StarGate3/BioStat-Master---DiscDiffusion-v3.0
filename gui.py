@@ -580,10 +580,11 @@ Error bars represent standard deviation. This overview highlights the differenti
         if mic_results:
             self.log("\n[4] Oszacowane MIC (Theoretical):")
             for sub, res in mic_results.items():
-                if res['MIC']:
-                    self.log(f"{sub}: {res['MIC']:.3f} {res['Unit']} (R2={res['R2']:.2f})")
+                if res['MIC'] is not None:
+                    flag = " ⚠ EKSTRAPOLACJA POZA ZBADANY ZAKRES" if res.get('Extrapolated') else ""
+                    self.log(f"{sub}: {res['MIC']:.3f} {res['Unit']} (R2={res['R2']:.2f}){flag}")
                 else:
-                    self.log(f"{sub}: Nie można wyznaczyć (<0 slope)")
+                    self.log(f"{sub}: MIC niedostępne - {res['Reason']}")
 
         # Pass mic_results to draw_trend
         fig_trend, err = self.plotter.draw_trend(df_run, bact, mic_data=mic_results)

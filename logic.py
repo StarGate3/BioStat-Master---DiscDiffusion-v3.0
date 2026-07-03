@@ -6,7 +6,7 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 import utils
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
-from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, MIC_MIN_R2
 
 class StatsEngine:
     def __init__(self):
@@ -177,14 +177,21 @@ class StatsEngine:
         Estimates MIC for each substance using Log-Linear Regression.
         Model: Diameter = a + b * ln(Concentration)
         MIC = exp((Target - a) / b)
+
+        Every substance in `selected_substances` gets an entry in the
+        returned dict, even when no reliable MIC could be computed -
+        "Status"/"Reason" always explain what happened (never a silent
+        omission). A numeric "MIC" is only populated when the log-linear
+        fit meets MIC_MIN_R2; "Extrapolated" flags an estimate that falls
+        outside the actually-tested concentration range.
         """
         results = {}
-        
+
         for sub in selected_substances:
             # 1. Pobierz dane tylko dla tej substancji
             # Musimy wyciągnąć stężenia z nazw grup.
             # Używamy utils.parse_concentration
-            
+
             sub_df = df[df[COL_GROUP].str.contains(sub, regex=False)].copy() # Wstępne filtrowanie, ale dokładne parsowanie niżej
 
             x_concs = []
@@ -203,35 +210,79 @@ class StatsEngine:
                             y_diams.append(m)
                             valid_unit = unit
 
-            if len(set(x_concs)) < 3:
-                # Za mało punktów stężeń do regresji (min 3 lepie)
+            n_points = len(set(x_concs))
+            if n_points < 3:
+                results[sub] = {
+                    "MIC": None, "Unit": valid_unit, "R2": None, "Slope": None, "Intercept": None,
+                    "Status": "za_malo_stezen", "Extrapolated": False, "ConcRange": None,
+                    "Reason": f"Za mało unikalnych stężeń do regresji (znaleziono {n_points}, wymagane min. 3).",
+                }
                 continue
-                
+
             # 2. Regresja Liniowa na logarytmach
             try:
                 log_x = np.log(x_concs)
                 slope, intercept, r_value, p_value, std_err = stats.linregress(log_x, y_diams)
-                
-                # 3. Oblicz MIC: 6 = a + b * ln(MIC) => ln(MIC) = (6 - a) / b
-                if slope > 0: # Oczekujemy że strefa rośnie ze stężeniem
-                    ln_mic = (target_diameter - intercept) / slope
-                    mic = np.exp(ln_mic)
-                else:
-                    mic = None # Ujemny lub zerowy współczynnik kierunkowy - brak sensu biol.
-                
-                results[sub] = {
-                    "MIC": mic, 
-                    "Unit": valid_unit, 
-                    "R2": r_value**2,
-                    "Slope": slope,
-                    "Intercept": intercept
-                }
+                r2 = r_value ** 2
+                conc_range = (min(x_concs), max(x_concs))
             # Skip this substance on degenerate regression input: linregress
             # raises ValueError on non-finite / zero-variance data, TypeError
             # guards non-numeric slipping past parse_concentration, LinAlgError
             # for any underlying solver failure. KeyboardInterrupt / SystemExit
-            # now propagate correctly.
-            except (ValueError, TypeError, np.linalg.LinAlgError):
-                pass
-                
+            # still propagate correctly.
+            except (ValueError, TypeError, np.linalg.LinAlgError) as e:
+                results[sub] = {
+                    "MIC": None, "Unit": valid_unit, "R2": None, "Slope": None, "Intercept": None,
+                    "Status": "blad_regresji", "Extrapolated": False, "ConcRange": None,
+                    "Reason": f"Regresja nie powiodła się ({type(e).__name__}: {e}).",
+                }
+                continue
+
+            if slope <= 0:
+                # Oczekujemy że strefa rośnie ze stężeniem - ujemny/zerowy
+                # współczynnik kierunkowy nie ma sensu biologicznego.
+                results[sub] = {
+                    "MIC": None, "Unit": valid_unit, "R2": r2, "Slope": slope, "Intercept": intercept,
+                    "Status": "ujemny_slope", "Extrapolated": False, "ConcRange": conc_range,
+                    "Reason": f"Strefa nie rośnie ze stężeniem (nachylenie={slope:.3f} <= 0) - brak sensu biologicznego.",
+                }
+                continue
+
+            # 3. Oblicz MIC: target = a + b * ln(MIC) => ln(MIC) = (target - a) / b
+            ln_mic = (target_diameter - intercept) / slope
+            mic = np.exp(ln_mic)
+            extrapolated = not (conc_range[0] <= mic <= conc_range[1])
+
+            if r2 < MIC_MIN_R2:
+                results[sub] = {
+                    "MIC": None, "Unit": valid_unit, "R2": r2, "Slope": slope, "Intercept": intercept,
+                    "Status": "slabe_dopasowanie", "Extrapolated": extrapolated, "ConcRange": conc_range,
+                    "Reason": (
+                        f"MIC odrzucone: słabe dopasowanie regresji (R²={r2:.2f} < próg {MIC_MIN_R2:g}). "
+                        f"Wartość {mic:.4g} {valid_unit} nie jest wiarygodna i nie jest raportowana."
+                    ),
+                }
+                continue
+
+            if extrapolated:
+                reason = (
+                    f"UWAGA: MIC ({mic:.4g} {valid_unit}) leży POZA przetestowanym zakresem stężeń "
+                    f"({conc_range[0]:g}-{conc_range[1]:g} {valid_unit}) - to ekstrapolacja poza zbadane dane, "
+                    f"traktuj wyłącznie orientacyjnie."
+                )
+            else:
+                reason = "Dopasowanie w normie, MIC mieści się w przetestowanym zakresie stężeń."
+
+            results[sub] = {
+                "MIC": mic,
+                "Unit": valid_unit,
+                "R2": r2,
+                "Slope": slope,
+                "Intercept": intercept,
+                "Status": "ekstrapolacja" if extrapolated else "ok",
+                "Extrapolated": extrapolated,
+                "ConcRange": conc_range,
+                "Reason": reason,
+            }
+
         return results
