@@ -114,11 +114,12 @@ run_analysis refuses to proceed while this value is selected."""
 # NOWY FORMAT WEJŚCIOWY (arkusz "Dane" z powtórzeniami bio/tech)
 # ============================================================
 
-NEW_FORMAT_SHEET_NAME: str = "Dane"
-"""Nazwa arkusza nowego szablonu wejściowego. Jeśli obecna w pliku, ten
+NEW_FORMAT_SHEET_NAME: str = "Dane_dyfuzja"
+"""Nazwa arkusza z danymi dyfuzji krążkowej w wieloarkuszowym szablonie
+(patrz sekcja "ROUTER WIELOARKUSZOWY" niżej). Jeśli obecna w pliku, ten
 arkusz jest czytany zamiast domyślnego pierwszego arkusza; w przeciwnym
 razie loader cofa się do dotychczasowego zachowania (pierwszy/domyślny
-arkusz) - wsteczna zgodność ze starymi plikami bez tego arkusza."""
+arkusz) - wsteczna zgodność ze starymi, jednoarkuszowymi plikami."""
 
 COL_SUBSTANCE: str = 'Substancja'
 COL_CONCENTRATION: str = 'Stezenie'
@@ -150,6 +151,41 @@ Stezenie/Jednostka) albo wartościami domyślnymi sygnalizującymi "cały
 wiersz danej grupy to jedno powtórzenie biologiczne" (Rep_biologiczna=1,
 Rep_techniczna=kolejny numer w obrębie grupy) gdy dany aspekt nie
 występuje w pliku wejściowym (stary format)."""
+
+# ============================================================
+# ROUTER WIELOARKUSZOWY (MIC/MBC, Faza 1: wykrywanie i wybór - BEZ analizy)
+# ============================================================
+
+SHEET_DIFFUSION: str = NEW_FORMAT_SHEET_NAME  # "Dane_dyfuzja" - alias dla czytelności w kontekście routera
+SHEET_MIC_VISUAL: str = "MIC_wizualny"
+SHEET_MIC_OD: str = "MIC_OD"
+SHEET_MBC: str = "MBC_posiew"
+SHEET_CONTROLS: str = "Kontrole"
+SHEET_INSTRUCTIONS: str = "Instrukcja"
+SHEET_SETTINGS: str = "Ustawienia"
+"""Nazwy wszystkich arkuszy docelowego, wieloarkuszowego szablonu wejściowego
+(maks. 7 arkuszy). SHEET_INSTRUCTIONS i SHEET_SETTINGS są zawsze ignorowane
+przez router - nie są ani arkuszem danych, ani błędem."""
+
+KNOWN_SHEET_NAMES: tuple = (
+    SHEET_DIFFUSION, SHEET_MIC_VISUAL, SHEET_MIC_OD, SHEET_MBC,
+    SHEET_CONTROLS, SHEET_INSTRUCTIONS, SHEET_SETTINGS,
+)
+DATA_SHEET_NAMES: tuple = (SHEET_DIFFUSION, SHEET_MIC_VISUAL, SHEET_MIC_OD, SHEET_MBC)
+"""DATA_SHEET_NAMES to arkusze niosące dane analizowalne per szczep (mają
+kolumnę Bakteria). SHEET_CONTROLS ma inny schemat (Przebieg/Kontrola_wzrostu/
+Kontrola_jalowosci/Inokulum_CFU_t0, bez kolumny Bakteria) i nie wchodzi do
+mapy dostępności per szczep w tej fazie."""
+
+ANALYSIS_DIFFUSION: str = "dyfuzja"
+ANALYSIS_MIC: str = "mic"
+ANALYSIS_MBC: str = "mbc"
+ANALYSIS_TYPES: tuple = (ANALYSIS_DIFFUSION, ANALYSIS_MIC, ANALYSIS_MBC)
+"""Typy analiz w mapie dostępności per szczep (utils.route_workbook).
+ANALYSIS_MIC pokrywa łącznie SHEET_MIC_VISUAL i SHEET_MIC_OD - w tej fazie
+routera oba tylko zasilają tę samą flagę dostępności; rozstrzygnięcie który
+tryb ma pierwszeństwo, gdy oba są obecne dla tego samego szczepu+substancji,
+jest odłożone do kolejnej fazy (patrz utils.route_workbook 'warnings')."""
 
 # ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
