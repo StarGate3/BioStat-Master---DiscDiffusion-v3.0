@@ -1,8 +1,9 @@
 import io
+import pandas as pd
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import inch
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -36,7 +37,12 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
         styles['Normal'].fontName = f_norm
         styles['Heading2'].fontName = f_bold
         styles['Title'].fontName = f_bold
-        
+        styles.add(ParagraphStyle(
+            name='Warning', parent=styles['Normal'], fontName=f_bold,
+            textColor=colors.HexColor('#8B0000'), borderColor=colors.HexColor('#8B0000'),
+            borderWidth=1, borderPadding=6, backColor=colors.HexColor('#FFF0F0'),
+        ))
+
         elements = []
 
         # 1. Metryczka
@@ -69,13 +75,27 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
         ))
         elements.append(Spacer(1, 24))
 
+        if metadata.get('low_n_bio_warning'):
+            elements.append(Paragraph(
+                "⚠ WYNIKI ORIENTACYJNE: co najmniej jedna porównywana grupa nie ma replikacji "
+                "biologicznej (n_bio&lt;2 - patrz kolumna n_bio w tabeli poniżej). P-value i istotność "
+                "statystyczna poniżej NIE są potwierdzone niezależnymi powtórzeniami biologicznymi; "
+                "traktuj je wyłącznie jako wskazówkę, nie dowód.",
+                styles['Warning']
+            ))
+            elements.append(Spacer(1, 18))
+
         # 2. Tabela Statystyk
         if stats_summary is not None:
             elements.append(Paragraph("Statystyki Opisowe", styles['Heading2']))
-            table_data = [[COL_GROUP, 'Średnia (mm)', 'SD (±)', 'N']]
+            table_data = [[COL_GROUP, 'Średnia (mm)', 'SD (między-biologiczne)', 'n_bio', 'n_tech']]
             for index, row in stats_summary.iterrows():
-                table_data.append([row[COL_GROUP], f"{row['mean']:.2f}", f"{row['std']:.2f}", f"{int(row['count'])}"])
-            t = Table(table_data, colWidths=[200, 80, 80, 50])
+                sd_txt = f"{row['sd_bio']:.2f}" if pd.notna(row['sd_bio']) else "—"
+                table_data.append([
+                    row[COL_GROUP], f"{row['mean']:.2f}", sd_txt,
+                    f"{int(row['n_bio'])}", f"{int(row['n_tech'])}",
+                ])
+            t = Table(table_data, colWidths=[170, 70, 110, 45, 45])
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.grey), 
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke), 
@@ -150,7 +170,13 @@ def generate_pdf(file_path, metadata, stats_summary, figures, detailed_results):
                 if row['Significant']:
                     d_val = row["Cohen's d"]
                     interp = row["Effect Size"]
-                    v_text = f"• Istotna różnica: <b>{row['Group 1']}</b> vs <b>{row['Group 2']}</b> (p={row['P-adj']:.4f}). Wielkość efektu d={d_val:.2f} ({interp})."
+                    # d_val jest NaN gdy n<2 w ktorejs grupie (brak replikacji
+                    # biologicznej) - "d=nan" wygladaloby jak blad, wiec
+                    # pokazujemy samo slowne wyjasnienie zamiast liczby.
+                    if d_val != d_val:  # NaN check bez importu math/pandas
+                        v_text = f"• Istotna różnica: <b>{row['Group 1']}</b> vs <b>{row['Group 2']}</b> (p={row['P-adj']:.4f}). Wielkość efektu: {interp}."
+                    else:
+                        v_text = f"• Istotna różnica: <b>{row['Group 1']}</b> vs <b>{row['Group 2']}</b> (p={row['P-adj']:.4f}). Wielkość efektu d={d_val:.2f} ({interp})."
                     verdicts.append(v_text)
 
         if not verdicts: 
