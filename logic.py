@@ -26,11 +26,14 @@ class StatsEngine:
         # Przygotowanie danych
         valid_groups = []
         dane_list = []
-        
-        # Filtrujemy grupy z < 2 pomiarami
+
+        # Filtrujemy tylko grupy calkowicie puste. n=1 (np. brak replikacji
+        # biologicznej, patrz utils.aggregate_technical_replicates) jest
+        # dopuszczalne - test wciaz sie wykonuje, ale wynik jest orientacyjny
+        # (patrz ostrzezenie n_bio<2 w gui.py/reports.py/plotting.py).
         for g in df_run[COL_GROUP].unique():
              data = df_run[df_run[COL_GROUP] == g][COL_MEASUREMENT].values
-             if len(data) >= 2:
+             if len(data) >= 1:
                 valid_groups.append(g)
                 dane_list.append(data)
 
