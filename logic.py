@@ -163,7 +163,10 @@ class StatsEngine:
         scaled_data = scaler.fit_transform(df_pivot)
         
         # 5. PCA
-        pca = PCA(n_components=2)
+        # random_state pinned for reproducibility: sklearn's PCA can fall back
+        # to a randomized SVD solver on larger inputs, which would otherwise
+        # make results non-deterministic between runs.
+        pca = PCA(n_components=2, random_state=42)
         pcs = pca.fit_transform(scaled_data)
         
         pca_df = pd.DataFrame(data=pcs, columns=['PC1', 'PC2'])
