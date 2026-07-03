@@ -10,11 +10,14 @@ Podstawowy algorytm (compute_mic_from_wells) jest wspólny dla obu trybów;
 różni je tylko sposób sprowadzenia surowej wartości studzienki do
 booleana "wzrost/brak" (patrz classify_wizualny_well / classify_od_well).
 """
+import math
+from collections import defaultdict
+
 import pandas as pd
 import utils
 from config import (
     MIC_STATUS_OK, MIC_STATUS_NEEDS_REVIEW, MIC_STATUS_CENSORED_LOW, MIC_STATUS_CENSORED_HIGH,
-    MIC_STATUS_INVALID_RUN, MIC_STATUS_MISSING_CONTROLS,
+    MIC_STATUS_INVALID_RUN, MIC_STATUS_MISSING_CONTROLS, MIC_STATUS_NO_DATA, MIC_LOW_N_BIO_WARNING,
     COL_RUN, COL_STEZ_S1, COL_DILUTION_FACTOR, WELL_COLUMNS,
     WELL_STATUS_GROWTH, WELL_STATUS_NO_GROWTH, MIC_OD_GROWTH_THRESHOLD, MIC_OD_MIN_GROWTH_SIGNAL,
     MIC_OD_STERILITY_MAX,
@@ -408,3 +411,134 @@ def process_mic_od(df, controls_df):
     bact_col = utils.find_bacteria_column(df)
     well_cols = [c for c in WELL_COLUMNS if c in df.columns]
     return [_process_row(row, bact_col, well_cols, controls_df, "od") for _, row in df.iterrows()]
+
+
+# ============================================================
+# AGREGACJA POWTÓRZEŃ (Faza 3): techniczne -> biologiczne -> grupa
+# ============================================================
+#
+# WAŻNE: wszystkie operacje poniżej działają na SKALI ROZCIEŃCZEŃ (log2
+# stężenia), nigdy na surowym stężeniu jako liczbie ciągłej. log2(stężenie)
+# jest niezależny od tego, jakie Stez_S1/Wsp_rozc miało konkretne
+# powtórzenie - dzięki temu powtórzenia o różnych schematach rozcieńczeń
+# wciąż da się sensownie agregować na wspólnej skali.
+#
+# REGUŁA MEDIANY ("high median"): dla N wartości posortowanych rosnąco na
+# skali log2, wynikiem jest element o indeksie N//2 (indeksowanie od 0).
+# Dla N nieparzystego to zwykły środkowy element. Dla N parzystego to
+# WYŻSZY z dwóch środkowych elementów - CELOWO nie uśredniamy dwóch
+# środkowych (interpolacja dałaby stężenie, które nigdy nie było testowane,
+# czyli "spoza skali rozcieńczeń"). Wybieramy zawsze ISTNIEJĄCY wpis, nigdy
+# nowo obliczoną liczbę - to jest też MECHANIZM propagacji cenzury: skoro
+# wynik to zawsze jeden z rzeczywistych wpisów wejściowych, jego flaga
+# censored automatycznie staje się flagą wyniku, bez żadnej dodatkowej
+# logiki "co zrobić, gdy mediana wypada w cenzurze".
+
+def _censor_rank(censored):
+    """
+    Porządek pomocniczy do sortowania przy remisach na tej samej wartości
+    log2: '<=X' sortuje TUŻ PRZED dokładnym '=X' (bo prawdziwa wartość może
+    być jeszcze niższa), a '>X' TUŻ PO (bo prawdziwa wartość może być
+    jeszcze wyższa). Rzadki przypadek (dokładny remis liczbowy), ale
+    zapewnia jednoznaczny, przewidywalny porządek zamiast losowego.
+    """
+    return {"low": -1, None: 0, "high": 1}[censored]
+
+
+def _high_median_entry(entries):
+    """
+    entries: niepusta lista dictów zawierających co najmniej klucze
+    'log2' (float) i 'censored' (None|'low'|'high'). Dowolne dodatkowe
+    klucze są zachowywane bez zmian.
+
+    Zwraca WYBRANY wpis (ten sam obiekt co na wejściu, nie nową wartość)
+    wg reguły "high median" opisanej w nagłówku sekcji.
+    """
+    ordered = sorted(entries, key=lambda e: (e["log2"], _censor_rank(e["censored"])))
+    return ordered[len(ordered) // 2]
+
+
+def aggregate_technical_to_biological(row_results):
+    """
+    Redukuje powtórzenia TECHNICZNE (wiersze z process_mic_wizualny/
+    process_mic_od dla JEDNEJ kombinacji Bakteria+Substancja+Rep_biologiczna)
+    do JEDNEJ wartości MIC tego powtórzenia biologicznego.
+
+    Kroki:
+      1. Wykluczamy wiersze bez wyznaczonej wartości (mic_value=None -
+         obejmuje status nieważny/brak_kontroli, oraz brzegowy przypadek
+         wymaga_weryfikacji "wzrost już w S1"). Zliczamy i opisujemy powody.
+      2. Jeśli po wykluczeniu nic nie zostaje: wynik = MIC_STATUS_NO_DATA,
+         z jawnym powodem wymieniającym wykluczone powtórzenia.
+      3. W przeciwnym razie: konwertujemy pozostałe mic_value na log2 i
+         wybieramy _high_median_entry - wynik (wartość + flaga cenzury)
+         jest DOKŁADNIE jednym z wejściowych powtórzeń technicznych.
+
+    Wiersze o statusie wymaga_weryfikacji NADAL uczestniczą w agregacji
+    (mają realną, tylko zachowawczo wyznaczoną wartość) - liczymy je w
+    n_flagged, żeby niepewność była widoczna w wyniku, a nie ukryta.
+
+    Zwraca dict: Bakteria, Substancja, Rep_biologiczna, mic_value, unit,
+    status, reason, censored, n_tech_total, n_tech_used, n_tech_excluded,
+    n_flagged.
+    """
+    if not row_results:
+        raise ValueError("aggregate_technical_to_biological: pusta lista wejściowa.")
+
+    first = row_results[0]
+    base = {
+        "Bakteria": first.get("Bakteria"),
+        "Substancja": first.get("Substancja"),
+        "Rep_biologiczna": first.get("Rep_biologiczna"),
+    }
+    unit = first.get("Jednostka")
+
+    usable = []
+    excluded_reasons = []
+    for r in row_results:
+        if r.get("mic_value") is None:
+            excluded_reasons.append(
+                f"Rep_techniczna={r.get('Rep_techniczna')}: wykluczone ({r['status']}) - {r['reason']}"
+            )
+        else:
+            usable.append(r)
+
+    n_tech_total = len(row_results)
+    n_tech_excluded = len(excluded_reasons)
+
+    if not usable:
+        reason = (
+            f"Brak danych: wszystkie {n_tech_total} powtórzenia(a) techniczne wykluczone. "
+            + " | ".join(excluded_reasons)
+        )
+        return {
+            **base, "mic_value": None, "unit": unit, "status": MIC_STATUS_NO_DATA,
+            "reason": reason, "censored": None,
+            "n_tech_total": n_tech_total, "n_tech_used": 0,
+            "n_tech_excluded": n_tech_excluded, "n_flagged": 0,
+        }
+
+    entries = [
+        {"log2": math.log2(r["mic_value"]), "censored": r["censored"], "source": r}
+        for r in usable
+    ]
+    picked = _high_median_entry(entries)
+    picked_row = picked["source"]
+    n_flagged = sum(1 for r in usable if r["status"] == MIC_STATUS_NEEDS_REVIEW)
+
+    reason = (
+        f"Mediana (high-median, n_tech={len(usable)}/{n_tech_total}) powtórzeń technicznych - "
+        f"wybrane powtórzenie Rep_techniczna={picked_row.get('Rep_techniczna')} "
+        f"(status źródłowy: {picked_row['status']})."
+    )
+    if excluded_reasons:
+        reason += " Wykluczone: " + " | ".join(excluded_reasons)
+    if n_flagged:
+        reason += f" UWAGA: {n_flagged}/{len(usable)} użytych odczytów miało status wymaga_weryfikacji."
+
+    return {
+        **base, "mic_value": picked_row["mic_value"], "unit": unit,
+        "status": picked_row["status"], "reason": reason, "censored": picked_row["censored"],
+        "n_tech_total": n_tech_total, "n_tech_used": len(usable),
+        "n_tech_excluded": n_tech_excluded, "n_flagged": n_flagged,
+    }
