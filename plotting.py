@@ -17,7 +17,7 @@ class Plotter:
     def update_config(self, new_config):
         self.config = new_config
 
-    def draw_bar_plot(self, df, bact, ref, sig_set):
+    def draw_bar_plot(self, df, bact, ref, sig_set, low_n_bio_warning=False):
         is_horiz = (self.config.get("orientation", "Pozioma") == "Pozioma")
 
         order = sorted(df[COL_GROUP].unique(), key=utils.smart_sort_key)
@@ -119,6 +119,20 @@ class Plotter:
 
         ax.set_title(f"{bact} vs {ref}", fontsize=f_ttl+2, fontweight='bold')
         fig.tight_layout()
+
+        if low_n_bio_warning:
+            # Ostrzeżenie musi być widoczne NA figurze, nie tylko w logu/PDF -
+            # ten wykres bywa kopiowany/eksportowany osobno (PNG/HQ), więc bez
+            # tego banera istotność wyglądałaby na potwierdzoną.
+            fig.subplots_adjust(bottom=fig.subplotpars.bottom + 0.10)
+            fig.text(
+                0.5, 0.01,
+                "Wyniki orientacyjne — brak replikacji biologicznej (n_bio=1); "
+                "istotność niepotwierdzona niezależnymi powtórzeniami.",
+                ha='center', va='bottom', fontsize=max(8, f_lbl - 1),
+                color='darkred', fontweight='bold', wrap=True,
+            )
+
         return fig
 
     def draw_heatmap(self, df, bact):
@@ -252,9 +266,16 @@ class Plotter:
 
     def draw_effect_plot(self, posthoc_detailed_results):
         if not posthoc_detailed_results: return None
-        
-        sig_results = [r for r in posthoc_detailed_results if r['Significant']]
-        
+
+        # Cohen's d jest NaN gdy n<2 w ktorejs z grup (np. brak replikacji
+        # biologicznej, n_bio=1) - taki wpis nie ma sensownego kierunku ani
+        # wielkosci do narysowania, wiec pomijamy go na TYM wykresie (jest
+        # nadal opisany tekstowo w logu/PDF przez get_effect_size_interpretation).
+        sig_results = [
+            r for r in posthoc_detailed_results
+            if r['Significant'] and not np.isnan(r["Cohen's d"])
+        ]
+
         if not sig_results: return None
 
         sig_results.sort(key=lambda x: abs(x["Cohen's d"]), reverse=False)
