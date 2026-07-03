@@ -12,8 +12,12 @@ booleana "wzrost/brak" (patrz classify_wizualny_well / classify_od_well).
 """
 import math
 from collections import defaultdict
+from itertools import combinations
 
+import numpy as np
 import pandas as pd
+from scipy import stats
+import scikit_posthocs as sp
 import utils
 from config import (
     MIC_STATUS_OK, MIC_STATUS_NEEDS_REVIEW, MIC_STATUS_CENSORED_LOW, MIC_STATUS_CENSORED_HIGH,
@@ -23,6 +27,8 @@ from config import (
     MIC_OD_STERILITY_MAX,
     COL_SUBSTANCE, COL_TYPE, COL_UNIT, COL_REP_BIO, COL_REP_TECH,
     COL_GROWTH_CONTROL, COL_STERILITY_CONTROL,
+    MIC_MEANINGFUL_DILUTION_DIFF, MIC_MAX_CENSORED_FRACTION, MIN_N_BIO_FOR_COMPARISON,
+    ALPHA,
 )
 
 
@@ -682,4 +688,87 @@ def aggregate_all(row_results):
     return {
         key: {"bio_results": bio_results, "summary": summarize_mic_group(bio_results)}
         for key, bio_results in bio_by_group.items()
+    }
+
+
+# ============================================================
+# PORÓWNANIA MIĘDZY GRUPAMI (Faza 4) - WARSTWA 1: OPIS
+# ============================================================
+#
+# Warstwa 1 działa ZAWSZE, niezależnie od cenzury i n_bio - to najbardziej
+# podstawowy, zawsze-interpretowalny wynik: mediana, zakres, i różnica w
+# LICZBIE ROZCIEŃCZEŃ (kroków log2) między medianami porównywanych grup.
+
+def _bio_results_to_entries(bio_results):
+    """Konwertuje wyniki biologiczne (Faza 3) na {'log2','censored','source'},
+    pomijając te bez wartości (status=brak_danych)."""
+    return [
+        {"log2": math.log2(b["mic_value"]), "censored": b["censored"], "source": b}
+        for b in bio_results if b["mic_value"] is not None
+    ]
+
+
+def describe_mic_group(bio_results):
+    """
+    Opis Warstwy 1 dla JEDNEJ grupy: n_bio, mediana (high-median, patrz
+    Faza 3), zakres min-max (każdy koniec z WŁASNĄ flagą cenzury). To jest
+    dokładnie to samo co summarize_mic_group bez mody/geo_mean/ostrzeżenia -
+    powtórzone tutaj jako samodzielna, minimalna jednostka do porównań,
+    żeby compare_mic_groups nie musiało zależeć od pełnego kształtu
+    summarize_mic_group.
+    """
+    entries = _bio_results_to_entries(bio_results)
+    unit = bio_results[0].get("unit") if bio_results else None
+    if not entries:
+        return {
+            "n_bio": 0, "unit": unit,
+            "median": _value_display(None, None, unit),
+            "range_min": _value_display(None, None, unit),
+            "range_max": _value_display(None, None, unit),
+            "median_log2": None,
+        }
+    median_entry = _high_median_entry(entries)
+    min_entry = min(entries, key=lambda e: e["log2"])
+    max_entry = max(entries, key=lambda e: e["log2"])
+    return {
+        "n_bio": len(entries), "unit": unit,
+        "median": _value_display(median_entry["source"]["mic_value"], median_entry["censored"], unit),
+        "range_min": _value_display(min_entry["source"]["mic_value"], min_entry["censored"], unit),
+        "range_max": _value_display(max_entry["source"]["mic_value"], max_entry["censored"], unit),
+        "median_log2": median_entry["log2"],
+    }
+
+
+def dilution_difference(desc_a, desc_b):
+    """
+    Różnica median DWÓCH grup (już opisanych przez describe_mic_group) w
+    LICZBIE ROZCIEŃCZEŃ (kroki log2) - NIGDY na surowym stężeniu. Dodatnia
+    wartość diff_dilutions oznacza, że mediana A > mediana B (A "bardziej
+    oporny"/wyższe MIC).
+
+    meaningful=True gdy |diff_dilutions| >= MIC_MEANINGFUL_DILUTION_DIFF
+    (domyślnie 2 kroki = różnica 4-krotna - patrz uzasadnienie w config.py).
+
+    Zwraca None gdy którejś z grup brakuje mediany (n_bio=0).
+    """
+    if desc_a["median_log2"] is None or desc_b["median_log2"] is None:
+        return None
+    # Zaokrąglenie przed porównaniem z progiem: log2 z podzielenia stężeń
+    # które "na papierze" różnią się o dokładną liczbę rozcieńczeń (np.
+    # 50/12.5=4=2^2) potrafi dać 1.9999999999999996 zamiast 2.0 przez błąd
+    # zmiennoprzecinkowy - bez zaokrąglenia próg ">=" mógłby błędnie odrzucić
+    # dokładnie granicznie sensowną różnicę.
+    diff = round(desc_a["median_log2"] - desc_b["median_log2"], 9)
+    meaningful = abs(diff) >= MIC_MEANINGFUL_DILUTION_DIFF
+    if diff > 0:
+        direction = "A > B"
+    elif diff < 0:
+        direction = "A < B"
+    else:
+        direction = "A = B"
+    return {
+        "diff_dilutions": diff,
+        "meaningful": meaningful,
+        "direction": direction,
+        "threshold": MIC_MEANINGFUL_DILUTION_DIFF,
     }
