@@ -18,6 +18,7 @@ ZASADY NADRZĘDNE (patrz też zadanie):
   (baner n_bio=1 wypalony na figurze).
 """
 import math
+import textwrap
 
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -25,6 +26,8 @@ from matplotlib.ticker import FuncFormatter
 
 import mic_logic
 from config import SCREEN_DPI
+
+ANNOTATION_WRAP_WIDTH = 60
 
 MIC_COLOR = "#1F6AA5"
 MBC_COLOR = "#8B0000"
@@ -280,4 +283,97 @@ def draw_mic_mbc_pairs(bact, rows, config=None):
     ax.set_xlabel("Stężenie", fontsize=f_ttl)
     ax.set_title(f"{bact}: odstęp MIC↔MBC per substancja", fontsize=f_ttl + 2, fontweight="bold")
     fig.tight_layout()
+    return fig
+
+
+def draw_mic_group_comparison(endpoint_name, comparison, label="", config=None):
+    """
+    WYJŚCIE 3: mediany + zakresy (skala log2) dla wszystkich porównywanych
+    substancji, posortowane, plus adnotacja z Warstwy 1 (różnica w
+    rozcieńczeniach + flaga sensowności) i - jeśli test policzony i NIE
+    wygaszony - wynikiem Warstwy 2, albo powodem wygaszenia (Warstwa 3).
+
+    comparison: wynik mic_logic.compare_mic_groups(groups) - działa
+    identycznie dla MIC i MBC (ta sama funkcja z Fazy 4, bez zmian - patrz
+    weryfikacja w rozmowie), endpoint_name ("MIC"/"MBC") steruje tylko
+    podpisami.
+    """
+    config = config or {}
+    f_lbl = config.get("font_labels", 10)
+    f_ttl = config.get("font_title", 12)
+
+    descriptions = comparison["descriptions"]
+    labels_sorted = sorted(
+        descriptions.keys(),
+        key=lambda k: descriptions[k]["median_log2"] if descriptions[k]["median_log2"] is not None else -1e9,
+    )
+
+    fig_h = max(3.2, 0.65 * len(labels_sorted) + 2)
+    fig = plt.Figure(figsize=(10.5, fig_h), dpi=SCREEN_DPI)
+    ax = fig.add_subplot(111)
+
+    all_vals = []
+    for i, lbl in enumerate(labels_sorted):
+        d = descriptions[lbl]
+        if d["median_log2"] is None:
+            ax.text(0.02, i, f"{lbl}: brak danych", fontsize=f_lbl, va="center", transform=ax.get_yaxis_transform())
+            continue
+        min_val = d["range_min"]["mic_value"]
+        max_val = d["range_max"]["mic_value"]
+        med_val = d["median"]["mic_value"]
+        all_vals += [min_val, max_val, med_val]
+
+        ax.plot([min_val, max_val], [i, i], color=MIC_COLOR, linewidth=2, alpha=0.5, zorder=2)
+        min_marker = MARKER_BY_CENSOR.get(d["range_min"]["censored"], "|")
+        max_marker = MARKER_BY_CENSOR.get(d["range_max"]["censored"], "|")
+        if d["range_min"]["censored"]:
+            ax.scatter([min_val], [i], marker=min_marker, s=70, color=MIC_COLOR, edgecolor="black", linewidth=0.6, zorder=4)
+        if d["range_max"]["censored"]:
+            ax.scatter([max_val], [i], marker=max_marker, s=70, color=MIC_COLOR, edgecolor="black", linewidth=0.6, zorder=4)
+        med_marker = MARKER_BY_CENSOR.get(d["median"]["censored"], "D")
+        ax.scatter([med_val], [i], marker="D" if med_marker == "o" else med_marker,
+                   s=140, color=MIC_COLOR, edgecolor="black", linewidth=1.2, zorder=6)
+
+        if d["n_bio"] < 2:
+            ax.text(med_val, i + 0.30, "n_bio=1", fontsize=max(7, f_lbl - 2),
+                    color="darkred", fontweight="bold", ha="center", va="bottom")
+
+    ax.set_yticks(range(len(labels_sorted)))
+    ax.set_yticklabels(labels_sorted, fontsize=f_lbl)
+    ax.set_ylim(-0.8, len(labels_sorted) - 0.2)
+    if all_vals:
+        _setup_log2_axis(ax, all_vals)
+    ax.set_xlabel("Stężenie", fontsize=f_ttl)
+
+    annotation_lines = ["Warstwa 1 (różnica median, w rozcieńczeniach):"]
+    for (a, b), diff in comparison["pairwise"].items():
+        flag = "ISTOTNA (≥próg)" if diff["meaningful"] else "poniżej progu sensowności"
+        annotation_lines.append(f"  {a} vs {b}: {diff['diff_dilutions']:+.1f}  [{flag}]")
+
+    layer2 = comparison["layer2"]
+    annotation_lines.append("")
+    if layer2["attempted"]:
+        p_txt = f"{layer2['p_value']:.4g}" if layer2["p_value"] is not None else "n/d"
+        line = f"Warstwa 2: {layer2['test']}, p={p_txt}"
+        if layer2.get("correction_method"):
+            line += f" (post-hoc: {layer2['correction_method']})"
+        annotation_lines.append(line)
+        if layer2["low_n_bio_warning"]:
+            annotation_lines.append("⚠ n_bio=1 w co najmniej jednej grupie - wynik orientacyjny.")
+    else:
+        annotation_lines.append("Warstwa 3 - test WYGASZONY:")
+        annotation_lines.append(textwrap.fill(layer2["suppressed_reason"], width=ANNOTATION_WRAP_WIDTH))
+
+    annotation_text = "\n".join(
+        textwrap.fill(line, width=ANNOTATION_WRAP_WIDTH) if len(line) > ANNOTATION_WRAP_WIDTH else line
+        for line in annotation_lines
+    )
+    ax.text(
+        1.02, 0.98, annotation_text, transform=ax.transAxes, fontsize=max(7, f_lbl - 1),
+        va="top", ha="left", bbox=dict(boxstyle="round", facecolor="white", alpha=0.92, edgecolor="gray"),
+    )
+
+    title_suffix = f": {label}" if label else ""
+    ax.set_title(f"Porównanie substancji ({endpoint_name}){title_suffix}", fontsize=f_ttl + 2, fontweight="bold")
+    fig.subplots_adjust(right=0.60)
     return fig
