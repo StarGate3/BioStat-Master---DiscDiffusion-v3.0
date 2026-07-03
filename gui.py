@@ -36,9 +36,10 @@ class App(ctk.CTk):
         self.export_stats_normality = []
         self.export_stats_main = [] 
         self.export_stats_posthoc = None
-        self.posthoc_detailed_results = [] 
-        self.stats_summary = None 
-        
+        self.posthoc_detailed_results = []
+        self.stats_summary = None
+        self.low_n_bio_warning = False
+
         # --- FIGURY ---
         self.figures = {
             'bar': None, 'heat': None, 'pvalue': None,
@@ -518,15 +519,23 @@ Error bars represent standard deviation. This overview highlights the differenti
                 self.log(f"!!! USUNIĘTO {len(dialog.result)} WARTOŚCI ODSTAJĄCYCH !!!")
 
         self.export_data_raw = df_run
-        self.stats_summary = df_run.groupby(COL_GROUP)[COL_MEASUREMENT].agg(['mean', 'std', 'count']).reset_index()
+
+        # 2b. AGREGACJA POWTÓRZEŃ TECHNICZNYCH (Delegacja)
+        # Testy istotności, post-hoc, MIC i wykresy statystyczne liczą się na
+        # średnich BIOLOGICZNYCH (n_bio), nie na surowych wierszach - inaczej
+        # powtórzenia techniczne liczyłyby się jako niezależne obserwacje
+        # (pseudoreplikacja, zawyżona moc / zaniżone p-value).
+        df_bio = utils.aggregate_technical_replicates(df_run, self.col_bact_name)
+        self.stats_summary = utils.build_group_summary(df_bio)
+        self.low_n_bio_warning = utils.has_low_n_bio(df_bio)
 
         # 3. STAT ENGINE (Delegacja)
-        summary_res, posthoc_df, error = self.stats_engine.run_statistics(df_run, method, ref_group)
-        
+        summary_res, posthoc_df, error = self.stats_engine.run_statistics(df_bio, method, ref_group)
+
         if error:
             self.log(f"Blad Statystyki: {error}")
             return
-        
+
         # Logowanie wyników
         self.clear_log()
         self.log(f"=== RAPORT v3: {bact} ===")
@@ -535,6 +544,13 @@ Error bars represent standard deviation. This overview highlights the differenti
             "UWAGA: program porównuje średnice stref zahamowania statystycznie i NIE wylicza "
             "klinicznych kategorii S/I/R (Susceptible/Intermediate/Resistant) wg CLSI (M100) ani EUCAST."
         )
+        if self.low_n_bio_warning:
+            self.log("!" * 66)
+            self.log("UWAGA: BRAK REPLIKACJI BIOLOGICZNEJ (n_bio<2) dla co najmniej jednej")
+            self.log("porównywanej grupy. Poniższe p-value / istotności są WYŁĄCZNIE")
+            self.log("orientacyjne - nie są potwierdzone niezależnymi powtórzeniami")
+            self.log("biologicznymi (patrz kolumny n_bio/n_tech w tabeli opisowej).")
+            self.log("!" * 66)
         self.export_stats_normality = summary_res['normality']
         self.export_stats_main = summary_res['main_stats']
         self.export_stats_posthoc = posthoc_df
@@ -559,7 +575,7 @@ Error bars represent standard deviation. This overview highlights the differenti
             )
 
         # 4. POST HOC DETALE (Delegacja)
-        detailed, sig_set = self.stats_engine.process_detailed_results(posthoc_df, df_run, ref_group, summary_res['test_used'])
+        detailed, sig_set = self.stats_engine.process_detailed_results(posthoc_df, df_bio, ref_group, summary_res['test_used'])
         self.posthoc_detailed_results = detailed
         
         if detailed:
@@ -567,17 +583,20 @@ Error bars represent standard deviation. This overview highlights the differenti
             for d in detailed:
                 if d['Significant']:
                     metrics_d = d["Cohen's d"]
-                    self.log(f"{d['Group 1']} vs {d['Group 2']} | p={d['P-adj']:.4f} | d={metrics_d:.2f}")
+                    if metrics_d != metrics_d:  # NaN - brak replikacji biologicznej w jednej z grup
+                        self.log(f"{d['Group 1']} vs {d['Group 2']} | p={d['P-adj']:.4f} | d=nieokreślony (brak replikacji)")
+                    else:
+                        self.log(f"{d['Group 1']} vs {d['Group 2']} | p={d['P-adj']:.4f} | d={metrics_d:.2f}")
 
         # 5. RYSOWANIE (Delegacja)
-        self.display_plot(lambda: self.plotter.draw_bar_plot(df_run, bact, ref_group, sig_set), self.tab_plot, 'bar')
-        self.display_plot(lambda: self.plotter.draw_heatmap(df_run, bact), self.tab_heatmap, 'heat')
+        self.display_plot(lambda: self.plotter.draw_bar_plot(df_bio, bact, ref_group, sig_set, low_n_bio_warning=self.low_n_bio_warning), self.tab_plot, 'bar')
+        self.display_plot(lambda: self.plotter.draw_heatmap(df_bio, bact), self.tab_heatmap, 'heat')
         self.display_plot(lambda: self.plotter.draw_pvalue_heatmap(self.export_stats_posthoc, bact), self.tab_pvalue, 'pvalue')
-        
-        # MIC ESTIMATION
-        unique_subs = utils.detect_selected_substances(df_run, wybrane)
 
-        mic_results = self.stats_engine.estimate_mic(df_run, unique_subs)
+        # MIC ESTIMATION (na średnich biologicznych per stężenie)
+        unique_subs = utils.detect_selected_substances(df_bio, wybrane)
+
+        mic_results = self.stats_engine.estimate_mic(df_bio, unique_subs)
         
         if mic_results:
             self.log("\n[4] Oszacowane MIC (Theoretical):")
@@ -588,14 +607,16 @@ Error bars represent standard deviation. This overview highlights the differenti
                 else:
                     self.log(f"{sub}: MIC niedostępne - {res['Reason']}")
 
-        # Pass mic_results to draw_trend
-        fig_trend, err = self.plotter.draw_trend(df_run, bact, mic_data=mic_results)
-        if fig_trend: 
+        # Pass mic_results to draw_trend (na średnich biologicznych)
+        fig_trend, err = self.plotter.draw_trend(df_bio, bact, mic_data=mic_results)
+        if fig_trend:
              self.display_figure(fig_trend, self.tab_trend, 'trend')
         elif err:
              self._show_plot_error(self.tab_trend, err)
 
-        self.display_plot(lambda: self.plotter.draw_cross_species(self.df, self.col_bact_name, wybrane), self.tab_cross, 'cross')
+        # Porównanie międzygatunkowe - też na średnich biologicznych (cały self.df, wszystkie szczepy)
+        df_bio_all = utils.aggregate_technical_replicates(self.df, self.col_bact_name)
+        self.display_plot(lambda: self.plotter.draw_cross_species(df_bio_all, self.col_bact_name, wybrane), self.tab_cross, 'cross')
         self.display_plot(lambda: self.plotter.draw_effect_plot(self.posthoc_detailed_results), self.tab_effect, 'effect')
 
         pca_res, pca_err = self.stats_engine.run_pca(self.df, self.col_bact_name, wybrane)
@@ -666,9 +687,17 @@ Error bars represent standard deviation. This overview highlights the differenti
         try:
             with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
                 self.export_data_raw.to_excel(writer, sheet_name="Dane Surowe", index=False)
+                if self.stats_summary is not None: self.stats_summary.to_excel(writer, sheet_name="Statystyki Opisowe (n_bio)", index=False)
                 if self.export_stats_normality: pd.DataFrame(self.export_stats_normality).to_excel(writer, sheet_name="Normalnosc", index=False)
                 if self.export_stats_main: pd.DataFrame(self.export_stats_main).to_excel(writer, sheet_name="Test Glowny", index=False)
                 if self.posthoc_detailed_results: pd.DataFrame(self.posthoc_detailed_results).to_excel(writer, sheet_name="Post-hoc (Details)", index=False)
+                if self.low_n_bio_warning:
+                    pd.DataFrame({"Uwaga": [
+                        "BRAK REPLIKACJI BIOLOGICZNEJ (n_bio<2) dla co najmniej jednej porownywanej grupy.",
+                        "Wyniki (p-value, istotnosc, Cohen's d) sa WYLACZNIE orientacyjne - nie sa",
+                        "potwierdzone niezaleznymi powtorzeniami biologicznymi.",
+                        "Zobacz kolumny n_bio/n_tech w arkuszu 'Statystyki Opisowe (n_bio)'.",
+                    ]}).to_excel(writer, sheet_name="UWAGA - n_bio", index=False)
             messagebox.showinfo("Sukces", f"Zapisano wyniki w:\n{file_path}")
         except Exception as e: messagebox.showerror("Błąd Zapisu", str(e))
 
@@ -686,6 +715,7 @@ Error bars represent standard deviation. This overview highlights the differenti
             'method': self.combo_method.get(),
             'ref': self.combo_ref.get(),
             'test_used': self.export_stats_main[0]['Test'] if self.export_stats_main else "",
+            'low_n_bio_warning': self.low_n_bio_warning,
         }
         
         success, msg = reports.generate_pdf(
