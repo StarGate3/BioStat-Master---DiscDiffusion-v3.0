@@ -321,6 +321,25 @@ i mic_logic.compare_mic_groups), spójnie z resztą programu (moduł
 dyfuzji)."""
 
 # ============================================================
+# MBC (Faza MBC): odczyt z posiewu + iloraz MBC/MIC
+# ============================================================
+
+MBC_REDUCTION_THRESHOLD: float = 0.999
+"""Próg redukcji CFU (1 - CFU_studzienki/CFU_t0) uznawany za spełnienie
+kryterium bójczego. 99.9% = redukcja 3-log10 - to NIE jest pragmatyczny
+próg autorski jak inne stałe w tym pliku, tylko STANDARDOWA, powszechnie
+przyjęta w mikrobiologii klinicznej definicja "bakteriobójczości" (MBC)
+w testach mikrorozcieńczeń - patrz standardowe protokoły oznaczania MBC."""
+
+MBC_MIC_BACTERICIDAL_MAX_D: int = 2
+MBC_MIC_BACTERIOSTATIC_MIN_D: int = 3
+"""Progi klasyfikacji ilorazu MBC/MIC na SKALI RÓŻNICY INDEKSÓW ROZCIEŃCZEŃ
+d = log2(MBC) - log2(MIC) (iloraz do wyświetlenia = 2**d): d<=2 (iloraz
+<=4) -> "bakteriobójcze"; d>=3 (iloraz >=8) -> "bakteriostatyczne". Progi
+podane wprost w specyfikacji zadania - odpowiadają powszechnie cytowanej
+klasycznej konwencji farmakologicznej (MBC/MIC <=4 = bakteriobójcze)."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 
