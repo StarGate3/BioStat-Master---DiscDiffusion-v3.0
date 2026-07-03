@@ -1190,7 +1190,8 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
 
     if mbc_hi is not None and mic_lo is not None and mbc_hi < mic_lo:
         return {
-            "status": "blad_spojnosci", "d": None, "d_lo": None, "d_hi": None, "classification": None,
+            "status": "blad_spojnosci", "d": None, "d_lo": None, "d_hi": None,
+            "classification": None, "ratio_display": None,
             "reason": (
                 f"Niemożliwa kombinacja: MBC "
                 f"({format_mic_display(mbc_result['mic_value'], mbc_result['censored'])}) nie może być "
