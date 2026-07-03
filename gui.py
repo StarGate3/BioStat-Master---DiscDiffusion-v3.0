@@ -173,7 +173,7 @@ class App(ctk.CTk):
             return
 
         try:
-            df = pd.read_excel(path)
+            df = utils.read_excel_any_format(path)
         except FileNotFoundError:
             messagebox.showerror("Błąd", "Plik nie istnieje lub został usunięty.")
             return
@@ -187,24 +187,16 @@ class App(ctk.CTk):
             messagebox.showerror("Błąd", f"Nie udało się wczytać pliku: {e}")
             return
 
-        df.columns = df.columns.str.strip()
+        df_internal, bacteria_col, rejected, struct_errors, format_info = utils.validate_and_normalize(df)
 
-        is_valid, errors = utils.validate_excel_structure(df)
-        if not is_valid:
-            body = "Plik nie może zostać wczytany z powodu następujących problemów:\n\n" + "\n".join(errors)
+        if struct_errors:
+            body = "Plik nie może zostać wczytany z powodu następujących problemów:\n\n" + "\n".join(struct_errors)
             messagebox.showerror("Błąd walidacji pliku", body)
             return
 
-        for col in df.select_dtypes(['object']).columns:
-            df[col] = df[col].str.strip()
-
-        bacteria_col = utils.find_bacteria_column(df)
-
         total_rows = len(df)
-        cleaned_df, rejected = utils.validate_excel_data(df, bacteria_col)
-
         if rejected:
-            if len(cleaned_df) == 0:
+            if len(df_internal) == 0:
                 messagebox.showerror(
                     "Brak poprawnych danych",
                     f"Wczytano {total_rows} wierszy. Wszystkie zostały odrzucone podczas walidacji — brak danych do analizy."
@@ -217,19 +209,21 @@ class App(ctk.CTk):
             body = (
                 f"Wczytano {total_rows} wierszy. Odrzucono {len(rejected)}:\n\n"
                 + "\n".join(shown_lines)
-                + f"\n\nPozostało {len(cleaned_df)} wierszy do analizy."
+                + f"\n\nPozostało {len(df_internal)} wierszy do analizy."
             )
             messagebox.showwarning("Odrzucono nieprawidłowe wiersze", body)
 
         try:
-            self.df = cleaned_df
+            self.df = df_internal
             self.col_bact_name = bacteria_col
             self.lbl_file.configure(text=os.path.basename(path), text_color="white")
             bacts = list(self.df[bacteria_col].unique())
             self.combo_bact.configure(values=bacts)
             self.combo_bact.set(bacts[0])
             self.on_bacteria_change(bacts[0])
-            self.log(f"Wczytano plik. Znaleziono szczepy: {bacts}")
+            is_new_format = format_info.get('has_type') or format_info.get('has_conc') or format_info.get('has_reps')
+            fmt_label = "NOWY (Typ/Stężenie/Powtórzenia)" if is_new_format else "STARY"
+            self.log(f"Wczytano plik (format: {fmt_label}). Znaleziono szczepy: {bacts}")
         except Exception as e: messagebox.showerror("Błąd", f"Nie udało się wczytać: {e}")
 
     def on_bacteria_change(self, selected_bact):
@@ -250,7 +244,7 @@ class App(ctk.CTk):
             df_temp = self.df[self.df[self.col_bact_name] == selected_bact]
             grupy_bact = sorted(df_temp[COL_GROUP].unique(), key=utils.smart_sort_key)
 
-            ref_candidate, ambiguous = utils.select_negative_control(grupy_bact)
+            ref_candidate, ambiguous = utils.select_reference_group(df_temp)
             if not ambiguous:
                 self.combo_ref.configure(values=grupy_bact)
                 self.combo_ref.set(ref_candidate)
@@ -581,12 +575,9 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.display_plot(lambda: self.plotter.draw_pvalue_heatmap(self.export_stats_posthoc, bact), self.tab_pvalue, 'pvalue')
         
         # MIC ESTIMATION
-        unique_subs = set()
-        for g in wybrane:
-            s, _, _ = utils.parse_concentration(g)
-            if s: unique_subs.add(s)
-            
-        mic_results = self.stats_engine.estimate_mic(df_run, list(unique_subs))
+        unique_subs = utils.detect_selected_substances(df_run, wybrane)
+
+        mic_results = self.stats_engine.estimate_mic(df_run, unique_subs)
         
         if mic_results:
             self.log("\n[4] Oszacowane MIC (Theoretical):")
