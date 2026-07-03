@@ -260,6 +260,27 @@ zastrzeżenie ma odpowiadający, czytelny "reason" - żaden status nie jest
 ciche (patrz mic_logic.compute_mic_for_row*)."""
 
 # ============================================================
+# MIC: AGREGACJA POWTÓRZEŃ (Faza 3)
+# ============================================================
+
+MIC_STATUS_NO_DATA: str = "brak_danych"
+"""Status na poziomie AGREGATU (powtórzenie biologiczne albo grupa
+Bakteria x Substancja) - gdy po wykluczeniu nieważnych/bezwartościowych
+powtórzeń technicznych (albo biologicznych) nie zostaje ani jedna wartość
+do zagregowania. Nie występuje na poziomie pojedynczego wiersza (Faza 2),
+tylko po agregacji (mic_logic.aggregate_technical_to_biological /
+summarize_mic_group)."""
+
+MIC_LOW_N_BIO_WARNING: str = (
+    "Brak replikacji biologicznej (n_bio=1) - wynik orientacyjny, nie "
+    "potwierdzony niezależnymi powtórzeniami."
+)
+"""Ostrzeżenie dołączane do podsumowania grupy MIC (Bakteria x Substancja),
+gdy n_bio<2, spójne w duchu z ostrzeżeniem n_bio=1 z modułu dyfuzji
+(logika/treść analogiczna, ale osobna stała - moduły MIC i dyfuzja nie
+współdzielą kodu prezentacji)."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 
