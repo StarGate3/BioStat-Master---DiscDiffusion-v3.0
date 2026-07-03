@@ -16,8 +16,19 @@ class OutlierDialog(ctk.CTkToplevel):
         
         self.result = [] 
 
-        ctk.CTkLabel(self, text="Wykryto potencjalne błędy pomiarowe (Test Dixona).\nZaznacz wartości, które chcesz WYKLUCZYĆ z analizy:", 
+        ctk.CTkLabel(self, text="Wykryto potencjalne błędy pomiarowe (Test Dixona).\nZaznacz wartości, które chcesz WYKLUCZYĆ z analizy:",
                       font=ctk.CTkFont(size=14, weight="bold"), wraplength=450).pack(pady=10)
+
+        ctk.CTkLabel(
+            self,
+            text=(
+                "Uwaga: przy n=3 test Dixona jest bardzo czuły - punkt różniący się "
+                "choćby o 1 mm od pozostałych dwóch często zostaje wykryty, mimo że to "
+                "naturalna zmienność biologiczna, a nie błąd pomiaru. Nic nie jest "
+                "domyślnie zaznaczone do usunięcia - decyzję podejmij świadomie."
+            ),
+            font=ctk.CTkFont(size=11, slant="italic"), text_color="gray", wraplength=450, justify="left",
+        ).pack(pady=(0, 10), padx=10)
 
         self.scroll = ctk.CTkScrollableFrame(self, width=450, height=250)
         self.scroll.pack(pady=5, padx=10, fill="both", expand=True)
@@ -29,8 +40,10 @@ class OutlierDialog(ctk.CTkToplevel):
             value = item['value']
             others = item['others']
             desc = f"Grupa: {group}\nOdstający: {value} mm (Pozostałe: {others})"
-            
-            var = ctk.IntVar(value=1)
+
+            # Domyślnie ODZNACZONE: usunięcie punktu ma być świadomą decyzją
+            # użytkownika (opt-in), nie automatycznym domyślnym zachowaniem.
+            var = ctk.IntVar(value=0)
             chk = ctk.CTkCheckBox(self.scroll, text=desc, variable=var, font=ctk.CTkFont(size=12))
             chk.pack(anchor="w", pady=5, padx=5)
             self.check_vars[(group, value)] = var
