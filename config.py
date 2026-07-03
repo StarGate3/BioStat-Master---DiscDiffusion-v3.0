@@ -281,6 +281,46 @@ gdy n_bio<2, spójne w duchu z ostrzeżeniem n_bio=1 z modułu dyfuzji
 współdzielą kodu prezentacji)."""
 
 # ============================================================
+# MIC: PORÓWNANIA MIĘDZY GRUPAMI (Faza 4)
+# ============================================================
+
+MIC_MEANINGFUL_DILUTION_DIFF: float = 2.0
+"""Minimalna różnica median (w krokach rozcieńczenia = log2 stężenia)
+uznawana za metodologicznie sensowną ("meaningful"). 2 kroki = różnica
+4-krotna. Uzasadnienie: pojedynczy krok rozcieńczenia (2-krotny) mieści
+się w typowej zmienności metody mikrorozcieńczeń (assay reproducibility
+jest zwykle podawana jako ±1 rozcieńczenie w standardowych protokołach
+mikrobiologicznych), więc różnica 1 kroku nie jest odróżnialna od zwykłego
+szumu pomiarowego. Różnica ≥2 kroków (4-krotna) przekracza tę typową
+zmienność i jest powszechnie przyjmowanym progiem "realnej" różnicy
+aktywności w literaturze porównań MIC. Próg czysto metodologiczny, nie
+kliniczny/regulacyjny."""
+
+MIC_MAX_CENSORED_FRACTION: float = 0.50
+"""Maksymalny dopuszczalny odsetek wartości cenzurowanych (≤min lub >max)
+w KTÓREJKOLWIEK porównywanej grupie, powyżej którego test istotności
+(Warstwa 2) jest wygaszany (zostaje tylko opis, Warstwa 1). Uzasadnienie:
+gdy połowa lub więcej odczytów w grupie to otwarte granice, a nie
+dokładne wartości, obserwowana różnica rang jest w dużej mierze efektem
+KONWENCJI wiązania rang cenzurowanych wartości (patrz
+mic_logic._censoring_surrogate), a nie realnego sygnału biologicznego -
+p-value w takiej sytuacji sugerowałby pewność, jakiej dane nie
+uzasadniają. 50% to prosty, łatwy do uzasadnienia próg ("większość
+danych w grupie to nie są liczby") - nie wartość z walidowanego
+protokołu."""
+
+MIN_N_BIO_FOR_COMPARISON: int = 1
+"""Minimalna liczba powtórzeń biologicznych z wartością, żeby grupa mogła
+w ogóle wejść do porównania (choćby tylko opisowego). Poniżej tego progu
+(n_bio=0, czyli grupa bez żadnej wartości MIC) nie da się policzyć nawet
+mediany/zakresu - porównanie z udziałem takiej grupy jest blokowane z
+jawnym powodem. n_bio=1 SPEŁNIA ten minimalny próg (bo 1 >= 1), więc nie
+jest tu blokowany - dostaje własne, osobne traktowanie: p-value jest
+liczone normalnie, ale z banerem ostrzegawczym (patrz MIC_LOW_N_BIO_WARNING
+i mic_logic.compare_mic_groups), spójnie z resztą programu (moduł
+dyfuzji)."""
+
+# ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
 # ============================================================
 
