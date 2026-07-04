@@ -239,10 +239,18 @@ tekstowe studzienek w arkuszu MIC_wizualny."""
 MIC_OD_GROWTH_THRESHOLD: float = 0.10
 """Próg względny odróżniający "wzrost" od "brak" w MIC_OD:
 procent_wzrostu = (OD_studzienki - tło) / (OD_kontroli_wzrostu - tło);
-studzienka = "brak", gdy procent_wzrostu < próg. 10% to standardowy,
-konserwatywny próg spotykany w kolorymetrycznych/OD-owych odczytach
-wzrostu (odcina szum odczytu i nieswoiste zmętnienie, nie odcina
-częściowo zahamowanego, ale realnie rosnącego inokulum)."""
+studzienka = "brak", gdy procent_wzrostu < próg.
+
+UWAGA (audyt 1.11): 10% to ROZSĄDNA, KONFIGUROWALNA wartość domyślna
+inżynierska tego narzędzia - NIE jest to liczba skodyfikowana w
+konkretnym standardzie CLSI/EUCAST (te definiują MIC głównie przez odczyt
+wizualny/mętność, bez jednego, powszechnie cytowanego progu procentowego
+dla metod OD). Wartości w zakresie 10-20% pojawiają się w różnych
+publikowanych metodach odczytu OD, więc 10% mieści się w tej praktyce, ale
+to wybór autorski, nie cytat ze standardu - dostosuj do walidacji
+własnego czytnika/protokołu, jeśli dysponujesz danymi uzasadniającymi inną
+wartość. Zamierzony efekt: odcina szum odczytu i nieswoiste zmętnienie,
+nie odcina częściowo zahamowanego, ale realnie rosnącego inokulum."""
 
 MIC_OD_MIN_GROWTH_SIGNAL: float = 0.10
 """Minimalna wymagana różnica (Kontrola_wzrostu - Kontrola_jalowosci) w
