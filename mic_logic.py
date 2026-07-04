@@ -30,6 +30,7 @@ from config import (
     COL_GROWTH_CONTROL, COL_STERILITY_CONTROL, COL_INOCULUM,
     MIC_MEANINGFUL_DILUTION_DIFF, MIC_MAX_CENSORED_FRACTION, MIN_N_BIO_FOR_COMPARISON,
     ALPHA, MBC_REDUCTION_THRESHOLD, MBC_MIC_BACTERICIDAL_MAX_D, MBC_MIC_BACTERIOSTATIC_MIN_D,
+    MBC_MIC_CLASSIFICATION_DILUTION_FACTOR,
 )
 
 
@@ -217,9 +218,21 @@ def classify_od_well(od_value, kontrola_wzrostu, kontrola_jalowosci, threshold=M
     MIC_OD: studzienka to liczba OD. Sprowadzana do wzrost/brak progiem
     względnym: procent_wzrostu = (OD - tło) / (Kontrola_wzrostu - tło),
     gdzie tło = Kontrola_jalowosci. "brak" gdy procent_wzrostu < threshold.
-    Zwraca None gdy od_value brakuje, albo gdy mianownik jest niedodatni
-    (nie powinno się zdarzyć po przejściu validate_run, ale zabezpieczenie
-    przed dzieleniem przez zero/ujemną liczbę zamiast wyjątku).
+    Zwraca None gdy od_value brakuje, albo gdy mianownik jest niedodatni.
+
+    UWAGA (audyt 1.10) - decyzja świadoma, nie przeoczenie: w OBECNYM
+    przepływie (_process_row, tryb "od") to zabezpieczenie jest technicznie
+    nieosiągalne - validate_run zawsze wykonuje się WCZEŚNIEJ i odrzuca
+    przebieg, jeśli (Kontrola_wzrostu - Kontrola_jalowosci) < próg > 0
+    (patrz MIC_OD_MIN_GROWTH_SIGNAL), więc denom>0 jest tam już
+    zagwarantowane. Zostaje mimo to CELOWO: classify_od_well jest małą,
+    samodzielną funkcją czystą (łatwą do testowania w izolacji, co ten
+    plik regularnie robi), a nie chcemy, żeby jej POPRAWNOŚĆ zależała od
+    tego, że KAŻDY przyszły wywołujący pamięta o wcześniejszym wywołaniu
+    validate_run. To zabezpieczenie WŁASNEGO niezmiennika funkcji (nigdy
+    nie dziel przez zero/liczbę ujemną), niezależne od dyscypliny
+    wywołującego kodu - tańsze niż ryzyko ZeroDivisionError/mylącego
+    wyniku, gdyby ta funkcja została kiedyś wywołana z innego miejsca.
     """
     if pd.isna(od_value):
         return None
@@ -236,23 +249,49 @@ def classify_od_well(od_value, kontrola_wzrostu, kontrola_jalowosci, threshold=M
 
 def lookup_controls(controls_df, przebieg):
     """
-    Zwraca dict {Kontrola_wzrostu, Kontrola_jalowosci, Inokulum_CFU_t0}
-    (wartości SUROWE - Kontrola_wzrostu/jalowosci mogą być liczbą OD albo
-    tekstem "wzrost"/"brak", patrz validate_run; Inokulum_CFU_t0 używane
-    tylko przez MBC) dla danego Przebiegu, albo None gdy controls_df jest
-    None, Przebieg jest pusty, albo nie ma dopasowania w arkuszu Kontrole.
+    Zwraca (ctrl, ambiguous_reason):
+      - (dict, None): dokładnie jedno dopasowanie w arkuszu Kontrole -
+        {Kontrola_wzrostu, Kontrola_jalowosci, Inokulum_CFU_t0} (wartości
+        SUROWE - Kontrola_wzrostu/jalowosci mogą być liczbą OD albo tekstem
+        "wzrost"/"brak", patrz validate_run; Inokulum_CFU_t0 używane tylko
+        przez MBC).
+      - (None, None): brak dopasowania - controls_df jest None, Przebieg
+        jest pusty, albo ta wartość Przebiegu w ogóle nie występuje w
+        arkuszu Kontrole.
+      - (None, str) (audyt 1.8): NIEJEDNOZNACZNE - arkusz Kontrole zawiera
+        WIĘCEJ NIŻ JEDEN wiersz dla tego samego Przebiegu. Zamiast po cichu
+        brać pierwszy napotkany wiersz (poprzednie zachowanie - który wiersz
+        jest "pierwszy" zależy od przypadkowej kolejności w pliku, więc
+        wybór byłby niedeterministyczny w duchu, nawet jeśli technicznie
+        powtarzalny), traktujemy to jak BRAK użytecznej kontroli, ale ze
+        zwróconym, jawnym powodem - spójnie z filozofią "nigdy nie zgaduj"
+        stosowaną gdzie indziej w programie (np. REF_PLACEHOLDER wymusza
+        ręczny wybór grupy referencyjnej zamiast zgadywać, gdy jest
+        niejednoznaczna).
+
+    Dopasowanie jest PO SAMEJ WARTOŚCI `przebieg`, GLOBALNIE względem
+    całego pliku - nie rozróżnia, z którego arkusza (MIC_wizualny/MIC_OD/
+    MBC_posiew) pochodzi wywołujący wiersz. To zamierzone - patrz pełne
+    uzasadnienie i wymagany zakres unikalności w docstringu config.COL_RUN
+    (audyt 1.7).
     """
     if controls_df is None or pd.isna(przebieg):
-        return None
+        return None, None
     matches = controls_df[controls_df[COL_RUN] == przebieg]
     if matches.empty:
-        return None
+        return None, None
+    if len(matches) > 1:
+        return None, (
+            f"Arkusz Kontrole zawiera {len(matches)} wpisy dla Przebiegu {przebieg!r} - "
+            f"niejednoznaczne, żaden z nich nie został użyty. Popraw arkusz Kontrole, tak by "
+            f"każdy Przebieg występował w nim dokładnie raz."
+        )
     row = matches.iloc[0]
     return {
         COL_GROWTH_CONTROL: row.get(COL_GROWTH_CONTROL),
         COL_STERILITY_CONTROL: row.get(COL_STERILITY_CONTROL),
         COL_INOCULUM: row.get(COL_INOCULUM),
-    }
+    }, None
 
 
 def _try_parse_numeric_control(value):
@@ -370,6 +409,12 @@ def _base_fields(row, bact_col):
         "Jednostka": row.get(COL_UNIT),
         "Rep_biologiczna": row.get(COL_REP_BIO),
         "Rep_techniczna": row.get(COL_REP_TECH),
+        # Wsp_rozc: None tutaj (jeszcze niesparsowane w tym miejscu wywołania) -
+        # _process_row/_process_mbc_row nadpisuje wartością SPARSOWANĄ (float)
+        # zaraz po udanej walidacji, żeby compute_mbc_mic_ratio (audyt 1.4)
+        # wiedziało, czy seria była dwukrotna (jedyny współczynnik, dla którego
+        # klasyfikacja bakteriobójcze/bakteriostatyczne jest zdefiniowana).
+        "Wsp_rozc": None,
     }
 
 
@@ -391,7 +436,9 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
     """
     base = _base_fields(row, bact_col)
     przebieg = row.get(COL_RUN)
-    ctrl = lookup_controls(controls_df, przebieg)
+    ctrl, ctrl_ambiguous_reason = lookup_controls(controls_df, przebieg)
+    if ctrl_ambiguous_reason:
+        return _result(base, None, MIC_STATUS_MISSING_CONTROLS, ctrl_ambiguous_reason, None, [])
     kw_num = _try_parse_numeric_control(ctrl.get(COL_GROWTH_CONTROL)) if ctrl is not None else None
     kj_num = _try_parse_numeric_control(ctrl.get(COL_STERILITY_CONTROL)) if ctrl is not None else None
     has_numeric_ctrl = kw_num is not None and kj_num is not None
@@ -440,6 +487,7 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
             f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
+    base["Wsp_rozc"] = wsp_rozc
 
     conc_growth_pairs = []
     wells_detail = []
@@ -528,7 +576,9 @@ def _process_mbc_row(row, bact_col, well_cols, controls_df):
     """
     base = _base_fields(row, bact_col)
     przebieg = row.get(COL_RUN)
-    ctrl = lookup_controls(controls_df, przebieg)
+    ctrl, ctrl_ambiguous_reason = lookup_controls(controls_df, przebieg)
+    if ctrl_ambiguous_reason:
+        return _result(base, None, MIC_STATUS_MISSING_CONTROLS, ctrl_ambiguous_reason, None, [])
 
     if ctrl is not None:
         is_valid, invalid_reason = validate_run(ctrl.get(COL_GROWTH_CONTROL), ctrl.get(COL_STERILITY_CONTROL))
@@ -572,6 +622,7 @@ def _process_mbc_row(row, bact_col, well_cols, controls_df):
             f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
+    base["Wsp_rozc"] = wsp_rozc
 
     conc_growth_pairs = []
     wells_detail = []
@@ -699,10 +750,12 @@ def aggregate_technical_to_biological(row_results):
     tam; ta funkcja tylko zbiera fakty, nie ostrzega sama).
 
     Zwraca dict: Bakteria, Substancja, Rep_biologiczna, mic_value, unit,
-    tech_units, status, reason, censored, n_tech_total, n_tech_used,
-    n_tech_excluded, n_flagged. Klucz "rep_bio_fallback_warning" jest
-    dopisywany PRZEZ WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję -
-    patrz tam.
+    tech_units, status, reason, censored, Wsp_rozc (audyt 1.4 - współczynnik
+    rozcieńczenia WYBRANEGO powtórzenia, potrzebny compute_mbc_mic_ratio do
+    ustalenia, czy klasyfikacja bakteriobójcze/bakteriostatyczne w ogóle ma
+    zastosowanie - patrz tam), n_tech_total, n_tech_used, n_tech_excluded,
+    n_flagged. Klucz "rep_bio_fallback_warning" jest dopisywany PRZEZ
+    WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję - patrz tam.
     """
     if not row_results:
         raise ValueError("aggregate_technical_to_biological: pusta lista wejściowa.")
@@ -736,7 +789,7 @@ def aggregate_technical_to_biological(row_results):
         )
         return {
             **base, "mic_value": None, "unit": unit, "tech_units": tech_units, "status": MIC_STATUS_NO_DATA,
-            "reason": reason, "censored": None,
+            "reason": reason, "censored": None, "Wsp_rozc": None,
             "n_tech_total": n_tech_total, "n_tech_used": 0,
             "n_tech_excluded": n_tech_excluded, "n_flagged": 0,
         }
@@ -762,6 +815,7 @@ def aggregate_technical_to_biological(row_results):
     return {
         **base, "mic_value": picked_row["mic_value"], "unit": unit, "tech_units": tech_units,
         "status": picked_row["status"], "reason": reason, "censored": picked_row["censored"],
+        "Wsp_rozc": picked_row.get("Wsp_rozc"),
         "n_tech_total": n_tech_total, "n_tech_used": len(usable),
         "n_tech_excluded": n_tech_excluded, "n_flagged": n_flagged,
     }
@@ -1176,32 +1230,49 @@ def _check_layer3_guards(groups_entries):
     """
     groups_entries: dict {label: lista entries (z _bio_results_to_entries)}.
 
-    Sprawdza warunki Warstwy 3 w kolejności (a)-(d) z zadania. Zwraca dict:
-      - suppressed (bool): czy Warstwa 2 (test) ma być pominięta.
-      - reason (str | None): jawny powód wygaszenia (gdy suppressed=True).
-      - low_n_bio_warning (bool): czy KTÓRAKOLWIEK grupa ma n_bio=1 (test
-        i tak się liczy, ale z banerem - patrz (d)).
-      - blocked_groups (list[str]): etykiety grup z n_bio=0 (poniżej
-        MIN_N_BIO_FOR_COMPARISON) - blokują całe porównanie, nie tylko
-        wygaszają p-value.
+    Sprawdza warunki Warstwy 3. Zwraca dict:
+      - suppressed (bool): czy Warstwa 2 (test) ma być CAŁKOWICIE pominięta.
+      - reason (str | None): jawny powód WYGASZENIA (gdy suppressed=True) -
+        albo zbyt duża cenzura, albo mniej niż 2 grupy z danymi po
+        wykluczeniu pustych.
+      - low_n_bio_warning (bool): czy KTÓRAKOLWIEK z UŻYTYCH grup ma n_bio=1.
+      - excluded_empty_groups (list[str]): etykiety grup bez ŻADNEJ wartości
+        MIC (n_bio=0).
+
+    Audyt 1.6 (spójność z modułem dyfuzji): grupa bez żadnej wartości NIGDY
+    nie znika po cichu z wyniku - jest zawsze wymieniona w
+    excluded_empty_groups, a compare_mic_groups dokłada z tego jawną notatkę
+    do layer2, WIDOCZNĄ niezależnie od tego, czy test w ogóle się wykonał.
+    Sama pusta grupa NIE blokuje już całego porównania (jak wcześniej) -
+    jest WYKLUCZANA z testu Warstwy 2 (nie ma z niej czego liczyć), a test
+    biegnie na POZOSTAŁYCH grupach, jeśli zostaje ich >=2 - dokładnie tak,
+    jak moduł dyfuzji (gui.py.run_analysis) teraz też robi: wyklucz + jawnie
+    ostrzeż, zamiast całkiem blokować albo cicho pomijać.
     """
-    blocked_groups = [label for label, entries in groups_entries.items() if len(entries) < MIN_N_BIO_FOR_COMPARISON]
-    if blocked_groups:
+    excluded_empty_groups = [label for label, entries in groups_entries.items() if len(entries) == 0]
+    remaining_labels = [label for label in groups_entries if label not in excluded_empty_groups]
+
+    if len(remaining_labels) < 2:
+        parts = []
+        if excluded_empty_groups:
+            parts.append(f"grupa(y) bez żadnej wartości MIC (n_bio=0): {', '.join(excluded_empty_groups)}")
+        parts.append(
+            f"po ich wykluczeniu zostaje mniej niż 2 grupy z danymi "
+            f"({', '.join(remaining_labels) if remaining_labels else 'brak'})"
+        )
         return {
-            "suppressed": True, "blocked_groups": blocked_groups, "low_n_bio_warning": False,
-            "reason": (
-                f"Porównanie zablokowane: grupa(y) bez żadnej wartości MIC (n_bio=0): "
-                f"{', '.join(blocked_groups)}. Nie ma czego opisać ani porównać."
-            ),
+            "suppressed": True, "excluded_empty_groups": excluded_empty_groups, "low_n_bio_warning": False,
+            "reason": "Porównanie (Warstwa 2) niemożliwe: " + "; ".join(parts) + ".",
         }
 
-    low_n_bio_warning = any(len(entries) == 1 for entries in groups_entries.values())
+    low_n_bio_warning = any(len(groups_entries[label]) == 1 for label in remaining_labels)
 
-    # (a)/(b) odsetek cenzury (100% to szczegolny przypadek tego samego testu)
+    # (a)/(b) odsetek cenzury (100% to szczegolny przypadek tego samego testu) -
+    # liczony TYLKO na grupach UŻYTYCH w teście (bez pustych, wykluczonych wyżej).
     over_threshold = {
-        label: _censored_fraction(entries)
-        for label, entries in groups_entries.items()
-        if _censored_fraction(entries) > MIC_MAX_CENSORED_FRACTION
+        label: _censored_fraction(groups_entries[label])
+        for label in remaining_labels
+        if _censored_fraction(groups_entries[label]) > MIC_MAX_CENSORED_FRACTION
     }
     if over_threshold:
         parts = []
@@ -1216,9 +1287,15 @@ def _check_layer3_guards(groups_entries):
             f"efektem konwencji wiązania rang wartości cenzurowanych, nie realnego sygnału. "
             f"Zostaje opis z Warstwy 1 (mediana/zakres/różnica rozcieńczeń)."
         )
-        return {"suppressed": True, "blocked_groups": [], "low_n_bio_warning": low_n_bio_warning, "reason": reason}
+        return {
+            "suppressed": True, "excluded_empty_groups": excluded_empty_groups,
+            "low_n_bio_warning": low_n_bio_warning, "reason": reason,
+        }
 
-    return {"suppressed": False, "blocked_groups": [], "low_n_bio_warning": low_n_bio_warning, "reason": None}
+    return {
+        "suppressed": False, "excluded_empty_groups": excluded_empty_groups,
+        "low_n_bio_warning": low_n_bio_warning, "reason": None,
+    }
 
 
 # ============================================================
@@ -1236,12 +1313,20 @@ def compare_mic_groups(groups, method="holm"):
     ("holm" domyślnie, spójnie z modułem dyfuzji; "fdr_bh"/"bonferroni").
 
     Zwraca dict:
-      - descriptions: {etykieta: describe_mic_group(...)}                    [Warstwa 1]
+      - descriptions: {etykieta: describe_mic_group(...)}                    [Warstwa 1,
+        dla WSZYSTKICH grup przekazanych w `groups`, w tym pustych (n_bio=0,
+        opisywane jako "n/d") - pusta grupa NIGDY nie znika z opisu, nawet
+        jeśli jest wykluczona z testu Warstwy 2 (patrz layer2 niżej)]
       - pairwise: {(etykieta_a, etykieta_b): dilution_difference(...)}       [Warstwa 1,
         dla WSZYSTKICH par, zawsze liczone niezależnie od tego, czy test
         w Warstwie 2 się wykonał]
       - layer2: dict z kluczami attempted/suppressed_reason/low_n_bio_warning/
-        test/statistic/p_value/posthoc/correction_method               [Warstwa 2/3]
+        excluded_empty_groups/exclusion_note/test/statistic/p_value/posthoc/
+        correction_method. [Warstwa 2/3] excluded_empty_groups (audyt 1.6)
+        to grupy z n_bio=0 wykluczone z TEGO testu - exclusion_note opisuje
+        to jawnie i jest ustawiona NIEZALEŻNIE od tego, czy test w ogóle się
+        wykonał (attempted True albo False), żeby wykluczenie nigdy nie było
+        ciche.
     """
     if len(groups) < 2:
         raise ValueError("compare_mic_groups: potrzeba co najmniej 2 grup do porównania.")
@@ -1256,17 +1341,26 @@ def compare_mic_groups(groups, method="holm"):
     }
 
     guard = _check_layer3_guards(entries_by_group)
+    excluded_empty_groups = guard["excluded_empty_groups"]
+    remaining_labels = [label for label in labels if label not in excluded_empty_groups]
+    exclusion_note = (
+        f"Wykluczono z testu Warstwy 2 (brak żadnej wartości MIC, n_bio=0): "
+        f"{', '.join(excluded_empty_groups)}. Warstwa 1 (opis) nadal obejmuje te grupy jako 'n/d'."
+        if excluded_empty_groups else None
+    )
     layer2 = {
         "attempted": not guard["suppressed"],
         "suppressed_reason": guard["reason"],
         "low_n_bio_warning": guard["low_n_bio_warning"],
+        "excluded_empty_groups": excluded_empty_groups,
+        "exclusion_note": exclusion_note,
         "test": None, "statistic": None, "p_value": None,
         "posthoc": None, "correction_method": None,
     }
 
     if not guard["suppressed"]:
-        if len(labels) == 2:
-            a, b = labels
+        if len(remaining_labels) == 2:
+            a, b = remaining_labels
             # Surogat MUSI być liczony na PULI OBU grup naraz (nie osobno na
             # każdej) - inaczej wysoki surogat cenzury z grupy A mógłby
             # wypaść NIŻEJ niż realne wartości grupy B, łamiąc regułę
@@ -1281,14 +1375,14 @@ def compare_mic_groups(groups, method="holm"):
             layer2["p_value"] = float(p)
         else:
             pooled_entries, pooled_labels = [], []
-            for label in labels:
+            for label in remaining_labels:
                 for e in entries_by_group[label]:
                     pooled_entries.append(e)
                     pooled_labels.append(label)
             surrogate = _censoring_surrogate(pooled_entries)
             groups_for_kw = [
                 [surrogate[i] for i in range(len(surrogate)) if pooled_labels[i] == label]
-                for label in labels
+                for label in remaining_labels
             ]
             stat, p = stats.kruskal(*groups_for_kw)
             layer2["test"] = "Kruskal-Wallis"
@@ -1366,7 +1460,22 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
     Gdy spójne: d_lo/d_hi to najciaśniejsza możliwa granica na d, z
     DOMYŚLNYM dolnym ograniczeniem d>=0 (bo MBC>=MIC jest wymuszone -
     nawet gdy surowa cenzura nie daje żadnej dolnej granicy, biologia
-    i tak ją daje). Klasyfikacja:
+    i tak ją daje). MIC, MBC i sam iloraz (d/d_lo/d_hi/ratio_display) są
+    liczone TAK SAMO niezależnie od współczynnika rozcieńczenia (Wsp_rozc)
+    użytego w danym powtórzeniu - to się NIE zmienia.
+
+    KLASYFIKACJA (audyt 1.4) - NATOMIAST jest podawana TYLKO, gdy zarówno
+    MIC, jak i MBC tego powtórzenia pochodzą z serii DWUKROTNYCH rozcieńczeń
+    (Wsp_rozc == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR). Uzasadnienie: progi
+    d<=2/d>=3 są zdefiniowane w literaturze właśnie dla serii dwukrotnych,
+    gdzie każdy możliwy krok d jest liczbą całkowitą - próg nigdy nie trafia
+    "między" 2 a 3. Dla innego współczynnika (np. 5-krotnego, gdzie jeden
+    krok to log2(5)=2.32) próg wypadałby w tej martwej strefie mimo w pełni
+    dokładnego pomiaru, co dawałoby fałszywe "nieoznaczalny" (patrz audyt).
+    Gdy współczynnik nie jest dwukrotny: classification="niedostępna" z
+    jawnym powodem - MIC/MBC/iloraz nadal są zwracane i pokazywane.
+
+    Gdy klasyfikacja MA zastosowanie (oba Wsp_rozc == 2):
       - d_hi <= MBC_MIC_BACTERICIDAL_MAX_D (2)   -> "bakteriobójcze" PEWNE
         (prawdziwe d nie może przekroczyć d_hi).
       - d_lo >= MBC_MIC_BACTERIOSTATIC_MIN_D (3) -> "bakteriostatyczne" PEWNE
@@ -1376,7 +1485,7 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
 
     Zwraca dict: status (ok/blad_spojnosci/nieoznaczalny/brak_danych),
     d (float|None, tylko gdy dokładne), d_lo, d_hi (float|None),
-    classification (bakteriobójcze/bakteriostatyczne/nieoznaczalny/None),
+    classification (bakteriobójcze/bakteriostatyczne/nieoznaczalny/niedostępna/None),
     ratio_display (str), reason (str).
     """
     if mic_result.get("mic_value") is None or mbc_result.get("mic_value") is None:
@@ -1410,8 +1519,29 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
     if d_hi is not None:
         d_hi = round(d_hi, 9)
     d_exact = d_lo if (d_hi is not None and d_lo == d_hi) else None
+    ratio_display = _format_ratio(d_exact, d_lo, d_hi)
 
-    if d_hi is not None and d_hi <= MBC_MIC_BACTERICIDAL_MAX_D:
+    # --- Audyt 1.4: klasyfikacja wymaga serii DWUKROTNEJ dla OBU wielkości ---
+    mic_wsp = mic_result.get("Wsp_rozc")
+    mbc_wsp = mbc_result.get("Wsp_rozc")
+    classification_applicable = (
+        mic_wsp == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR and mbc_wsp == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR
+    )
+
+    if not classification_applicable:
+        classification = "niedostępna"
+        status = "ok" if d_exact is not None else "nieoznaczalny"
+        if mic_wsp is None or mbc_wsp is None:
+            wsp_desc = "nieznany"
+        elif mic_wsp == mbc_wsp:
+            wsp_desc = f"{mic_wsp:g}"
+        else:
+            wsp_desc = f"MIC={mic_wsp:g}, MBC={mbc_wsp:g}"
+        reason = (
+            f"Iloraz MBC/MIC = {ratio_display}. Klasyfikacja bakteriobójcze/bakteriostatyczne jest "
+            f"zdefiniowana dla serii dwukrotnych rozcieńczeń; przy Wsp_rozc={wsp_desc} nie jest podawana."
+        )
+    elif d_hi is not None and d_hi <= MBC_MIC_BACTERICIDAL_MAX_D:
         classification = "bakteriobójcze"
         status = "ok"
         reason = (
@@ -1436,7 +1566,7 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
 
     return {
         "status": status, "d": d_exact, "d_lo": d_lo, "d_hi": d_hi,
-        "classification": classification, "ratio_display": _format_ratio(d_exact, d_lo, d_hi),
+        "classification": classification, "ratio_display": ratio_display,
         "reason": reason,
     }
 
@@ -1479,6 +1609,13 @@ def _representative_d(ratio_result):
     której wiemy PEWNIE, po której stronie progu leży. "nieoznaczalny" i
     "blad_spojnosci"/"brak_danych" NIE mają defensywnej reprezentacji -
     zwracają None i są wykluczone z mediany grupowej (zliczone osobno).
+
+    "niedostępna" (audyt 1.4 - Wsp_rozc != 2) NADAL zwraca d, gdy jest ono
+    dokładne (ratio_result["d"] is not None) - to nadal poprawna, policzona
+    liczba, warta zachowania w medianie d dla RAPORTOWANIA (median_d/
+    ratio_display). To summarize_mbc_mic_ratio, nie ta funkcja, decyduje,
+    czy WYNIKOWA klasyfikacja grupy ma być podana, sprawdzając, czy
+    KTÓRYKOLWIEK z użytych wkładów miał classification="niedostępna".
     """
     if ratio_result["status"] in ("blad_spojnosci", "brak_danych"):
         return None
@@ -1520,7 +1657,18 @@ def summarize_mbc_mic_ratio(paired_results):
     median_entry = _high_median_entry(entries)
     median_d = round(median_entry["log2"], 9)
 
-    if median_d <= MBC_MIC_BACTERICIDAL_MAX_D:
+    # Audyt 1.4: jeśli KTÓREKOLWIEK z użytych powtórzeń miało klasyfikację
+    # "niedostępna" (Wsp_rozc != 2 dla MIC i/lub MBC tego powtórzenia), cała
+    # klasyfikacja GRUPOWA jest też "niedostępna" - median_d/ratio_display
+    # nadal są liczone i pokazywane normalnie (to poprawne liczby niezależnie
+    # od współczynnika rozcieńczenia), tylko etykieta bakteriobójcze/
+    # bakteriostatyczne nie jest zgadywana z mediany zbudowanej częściowo
+    # z niesklasyfikowalnych wkładów.
+    non_2fold = [p for p, d in usable if p["ratio"].get("classification") == "niedostępna"]
+
+    if non_2fold:
+        classification = "niedostępna"
+    elif median_d <= MBC_MIC_BACTERICIDAL_MAX_D:
         classification = "bakteriobójcze"
     elif median_d >= MBC_MIC_BACTERIOSTATIC_MIN_D:
         classification = "bakteriostatyczne"
@@ -1528,10 +1676,19 @@ def summarize_mbc_mic_ratio(paired_results):
         classification = "nieoznaczalny"
 
     n_bio = len(usable)
+    warning = MIC_LOW_N_BIO_WARNING if n_bio < 2 else None
+    if non_2fold:
+        cls_warning = (
+            f"Klasyfikacja bakteriobójcze/bakteriostatyczne niedostępna: {len(non_2fold)}/{n_bio} "
+            f"użytych powtórzeń nie pochodziło z serii dwukrotnych rozcieńczeń (klasyfikacja "
+            f"zdefiniowana tylko dla Wsp_rozc=={MBC_MIC_CLASSIFICATION_DILUTION_FACTOR:g})."
+        )
+        warning = f"{warning} {cls_warning}" if warning else cls_warning
+
     return {
         "n_bio": n_bio, "n_bio_excluded": n_bio_excluded, "median_d": median_d,
         "classification": classification, "ratio_display": f"{2 ** median_d:g}",
-        "warning": MIC_LOW_N_BIO_WARNING if n_bio < 2 else None,
+        "warning": warning,
     }
 
 

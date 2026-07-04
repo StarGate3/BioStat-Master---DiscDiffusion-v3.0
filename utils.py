@@ -518,6 +518,26 @@ def route_workbook(path):
             f"pierwszeństwo, zostanie zaimplementowany w kolejnej fazie."
         )
 
+    # --- Audyt 1.9: zbiorcze ostrzeżenie o braku arkusza Kontrole, gdy jest
+    # MIC_OD i/lub MBC_posiew (oba go WYMAGAJĄ) - jedno jasne ostrzeżenie
+    # TERAZ, przy wczytaniu pliku, zamiast dopiero wiersz-po-wierszu po
+    # uruchomieniu analizy (kiedy każdy wiersz i tak dostanie tę samą,
+    # powtórzoną informację osobno - poprawną, ale spóźnioną).
+    needs_controls = result["mic_od_raw_df"] is not None or result["mbc_raw_df"] is not None
+    if needs_controls and result["controls_raw_df"] is None:
+        missing_for = [
+            name for name, df in (
+                (SHEET_MIC_OD, result["mic_od_raw_df"]),
+                (SHEET_MBC, result["mbc_raw_df"]),
+            ) if df is not None
+        ]
+        result["warnings"].append(
+            f"Arkusz {SHEET_CONTROLS!r} jest nieobecny (albo pusty), a plik zawiera dane w arkuszu/arkuszach "
+            f"{', '.join(repr(m) for m in missing_for)}, które go WYMAGAJĄ (kontrola wzrostu/jałowości dla "
+            f"MIC_OD, CFU_t0 dla MBC). Wszystkie wiersze w tych arkuszach zostaną odrzucone z powodu braku "
+            f"kontroli - dodaj arkusz {SHEET_CONTROLS!r} albo usuń te dane z pliku."
+        )
+
     if not availability:
         result["errors"].append(
             "Plik nie zawiera żadnych danych do analizy (wszystkie arkusze danych są puste lub nieobecne)."

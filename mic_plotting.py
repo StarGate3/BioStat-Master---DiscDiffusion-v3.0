@@ -356,6 +356,11 @@ def draw_mic_group_comparison(endpoint_name, comparison, label="", config=None):
 
     layer2 = comparison["layer2"]
     annotation_lines.append("")
+    # Audyt 1.6: grupa bez żadnej wartości (n_bio=0) wykluczona z Warstwy 2
+    # jest zawsze wymieniona tutaj - NIEZALEŻNIE od tego, czy test w ogóle
+    # się wykonał na pozostałych grupach (attempted) - nigdy cicho.
+    if layer2.get("exclusion_note"):
+        annotation_lines.append(textwrap.fill(layer2["exclusion_note"], width=ANNOTATION_WRAP_WIDTH))
     if layer2["attempted"]:
         p_txt = f"{layer2['p_value']:.4g}" if layer2["p_value"] is not None else "n/d"
         line = f"Warstwa 2: {layer2['test']}, p={p_txt}"

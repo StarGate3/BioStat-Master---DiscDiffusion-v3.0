@@ -192,6 +192,32 @@ jest odłożone do kolejnej fazy (patrz utils.route_workbook 'warnings')."""
 # ============================================================
 
 COL_RUN: str = "Przebieg"
+"""Identyfikator przebiegu (jednego fizycznego oznaczenia MIC albo MBC).
+
+ZAKRES UNIKALNOŚCI (audyt 1.7 - wcześniej nieudokumentowany): Przebieg jest
+identyfikatorem GLOBALNYM dla całego pliku, nie lokalnym dla pojedynczego
+arkusza. mic_logic.lookup_controls dopasowuje wartość Przebieg z wiersza
+MIC_wizualny/MIC_OD/MBC_posiew do wiersza w arkuszu Kontrole PO SAMEJ
+WARTOŚCI TEKSTOWEJ, bez rozróżniania, z którego arkusza danych pochodzi
+wywołanie - to samo "run-001" w MIC_wizualny i w MBC_posiew zostanie
+dopasowane do TEGO SAMEGO wiersza Kontrole.
+
+Jest to ZAMIERZONE, nie przeoczenie: w typowym protokole MBC pochodzi z
+posiewu (subkultury) TYCH SAMYCH studzienek/przebiegu co odczyt MIC, więc
+współdzielenie jednego identyfikatora Przebieg (i tym samym jednej
+kontroli wzrostu/jałowości/CFU_t0) między wierszem MIC a odpowiadającym mu
+wierszem MBC dla TEGO SAMEGO fizycznego oznaczenia jest poprawne i
+oczekiwane.
+
+WYMAGANE: każda wartość Przebieg musi być unikalna w obrębie CAŁEGO pliku
+(across MIC_wizualny + MIC_OD + MBC_posiew łącznie), nie tylko w obrębie
+jednego arkusza - ponumerowanie od nowa w każdym arkuszu osobno (np. "1",
+"2"... powtórzone w MIC_wizualny i ponownie w MBC_posiew dla NIEPOWIĄZANYCH
+przebiegów) doprowadzi do cichego dopasowania niewłaściwej kontroli.
+Jedyny wyjątek: gdy MIC i MBC danego Przebiegu naprawdę pochodzą z tego
+samego fizycznego oznaczenia - wtedy współdzielenie identyfikatora (i
+kontroli) między arkuszami jest poprawne."""
+
 COL_STEZ_S1: str = "Stez_S1"
 COL_DILUTION_FACTOR: str = "Wsp_rozc"
 """Kolumny meta wspólne dla MIC_wizualny/MIC_OD/MBC_posiew. Bakteria/
@@ -213,10 +239,18 @@ tekstowe studzienek w arkuszu MIC_wizualny."""
 MIC_OD_GROWTH_THRESHOLD: float = 0.10
 """Próg względny odróżniający "wzrost" od "brak" w MIC_OD:
 procent_wzrostu = (OD_studzienki - tło) / (OD_kontroli_wzrostu - tło);
-studzienka = "brak", gdy procent_wzrostu < próg. 10% to standardowy,
-konserwatywny próg spotykany w kolorymetrycznych/OD-owych odczytach
-wzrostu (odcina szum odczytu i nieswoiste zmętnienie, nie odcina
-częściowo zahamowanego, ale realnie rosnącego inokulum)."""
+studzienka = "brak", gdy procent_wzrostu < próg.
+
+UWAGA (audyt 1.11): 10% to ROZSĄDNA, KONFIGUROWALNA wartość domyślna
+inżynierska tego narzędzia - NIE jest to liczba skodyfikowana w
+konkretnym standardzie CLSI/EUCAST (te definiują MIC głównie przez odczyt
+wizualny/mętność, bez jednego, powszechnie cytowanego progu procentowego
+dla metod OD). Wartości w zakresie 10-20% pojawiają się w różnych
+publikowanych metodach odczytu OD, więc 10% mieści się w tej praktyce, ale
+to wybór autorski, nie cytat ze standardu - dostosuj do walidacji
+własnego czytnika/protokołu, jeśli dysponujesz danymi uzasadniającymi inną
+wartość. Zamierzony efekt: odcina szum odczytu i nieswoiste zmętnienie,
+nie odcina częściowo zahamowanego, ale realnie rosnącego inokulum."""
 
 MIC_OD_MIN_GROWTH_SIGNAL: float = 0.10
 """Minimalna wymagana różnica (Kontrola_wzrostu - Kontrola_jalowosci) w
@@ -337,7 +371,25 @@ MBC_MIC_BACTERIOSTATIC_MIN_D: int = 3
 d = log2(MBC) - log2(MIC) (iloraz do wyświetlenia = 2**d): d<=2 (iloraz
 <=4) -> "bakteriobójcze"; d>=3 (iloraz >=8) -> "bakteriostatyczne". Progi
 podane wprost w specyfikacji zadania - odpowiadają powszechnie cytowanej
-klasycznej konwencji farmakologicznej (MBC/MIC <=4 = bakteriobójcze)."""
+klasycznej konwencji farmakologicznej (MBC/MIC <=4 = bakteriobójcze).
+
+UWAGA (audyt 1.4): te progi na skali log2 są zdefiniowane w literaturze
+DLA SERII DWUKROTNYCH ROZCIEŃCZEŃ (Wsp_rozc=2) - tylko wtedy każdy możliwy
+krok d jest liczbą całkowitą, więc próg "d<=2 albo d>=3" nigdy nie trafia
+w "martwą strefę" między nimi. Dla innego współczynnika (np. 5-krotnego,
+d=log2(5)=2.32) próg ten wypadałby w tej martwej strefie mimo w pełni
+dokładnego, niecenzurowanego pomiaru - dlatego mic_logic.compute_mbc_mic_ratio
+i mic_logic.summarize_mbc_mic_ratio liczą MIC/MBC/iloraz normalnie dla
+DOWOLNEGO Wsp_rozc, ale samą KLASYFIKACJĘ bakteriobójcze/bakteriostatyczne
+podają tylko, gdy Wsp_rozc == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR."""
+
+MBC_MIC_CLASSIFICATION_DILUTION_FACTOR: int = 2
+"""Jedyny współczynnik rozcieńczenia (Wsp_rozc), dla którego klasyfikacja
+bakteriobójcze/bakteriostatyczne (progi wyżej) jest w ogóle podawana -
+patrz uzasadnienie w komentarzu do MBC_MIC_BACTERICIDAL_MAX_D. Dla innego
+Wsp_rozc MIC, MBC i sam iloraz są liczone i pokazywane jak zawsze -
+niedostępna jest WYŁĄCZNIE etykieta bakteriobójcze/bakteriostatyczne,
+z jawnym powodem zamiast zgadywania."""
 
 # ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)
