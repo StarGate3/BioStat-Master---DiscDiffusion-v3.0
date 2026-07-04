@@ -192,6 +192,32 @@ jest odłożone do kolejnej fazy (patrz utils.route_workbook 'warnings')."""
 # ============================================================
 
 COL_RUN: str = "Przebieg"
+"""Identyfikator przebiegu (jednego fizycznego oznaczenia MIC albo MBC).
+
+ZAKRES UNIKALNOŚCI (audyt 1.7 - wcześniej nieudokumentowany): Przebieg jest
+identyfikatorem GLOBALNYM dla całego pliku, nie lokalnym dla pojedynczego
+arkusza. mic_logic.lookup_controls dopasowuje wartość Przebieg z wiersza
+MIC_wizualny/MIC_OD/MBC_posiew do wiersza w arkuszu Kontrole PO SAMEJ
+WARTOŚCI TEKSTOWEJ, bez rozróżniania, z którego arkusza danych pochodzi
+wywołanie - to samo "run-001" w MIC_wizualny i w MBC_posiew zostanie
+dopasowane do TEGO SAMEGO wiersza Kontrole.
+
+Jest to ZAMIERZONE, nie przeoczenie: w typowym protokole MBC pochodzi z
+posiewu (subkultury) TYCH SAMYCH studzienek/przebiegu co odczyt MIC, więc
+współdzielenie jednego identyfikatora Przebieg (i tym samym jednej
+kontroli wzrostu/jałowości/CFU_t0) między wierszem MIC a odpowiadającym mu
+wierszem MBC dla TEGO SAMEGO fizycznego oznaczenia jest poprawne i
+oczekiwane.
+
+WYMAGANE: każda wartość Przebieg musi być unikalna w obrębie CAŁEGO pliku
+(across MIC_wizualny + MIC_OD + MBC_posiew łącznie), nie tylko w obrębie
+jednego arkusza - ponumerowanie od nowa w każdym arkuszu osobno (np. "1",
+"2"... powtórzone w MIC_wizualny i ponownie w MBC_posiew dla NIEPOWIĄZANYCH
+przebiegów) doprowadzi do cichego dopasowania niewłaściwej kontroli.
+Jedyny wyjątek: gdy MIC i MBC danego Przebiegu naprawdę pochodzą z tego
+samego fizycznego oznaczenia - wtedy współdzielenie identyfikatora (i
+kontroli) między arkuszami jest poprawne."""
+
 COL_STEZ_S1: str = "Stez_S1"
 COL_DILUTION_FACTOR: str = "Wsp_rozc"
 """Kolumny meta wspólne dla MIC_wizualny/MIC_OD/MBC_posiew. Bakteria/

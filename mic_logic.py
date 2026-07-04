@@ -242,6 +242,12 @@ def lookup_controls(controls_df, przebieg):
     tekstem "wzrost"/"brak", patrz validate_run; Inokulum_CFU_t0 używane
     tylko przez MBC) dla danego Przebiegu, albo None gdy controls_df jest
     None, Przebieg jest pusty, albo nie ma dopasowania w arkuszu Kontrole.
+
+    Dopasowanie jest PO SAMEJ WARTOŚCI `przebieg`, GLOBALNIE względem
+    całego pliku - nie rozróżnia, z którego arkusza (MIC_wizualny/MIC_OD/
+    MBC_posiew) pochodzi wywołujący wiersz. To zamierzone - patrz pełne
+    uzasadnienie i wymagany zakres unikalności w docstringu config.COL_RUN
+    (audyt 1.7).
     """
     if controls_df is None or pd.isna(przebieg):
         return None
