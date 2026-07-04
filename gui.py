@@ -957,6 +957,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         win.title(f"Analiza MIC/MBC: {bact}")
         win.geometry("1100x750")
         self.mic_mbc_window = win
+        self._bring_window_to_front(win)
 
         self._mic_mbc_state = {"bact": bact, "mic_bact": mic_bact, "mbc_bact": mbc_bact, "substances": substances}
         self.mic_mbc_figures = {}
@@ -987,6 +988,27 @@ Error bars represent standard deviation. This overview highlights the differenti
         self._render_mic_mbc_pairs()
         self._render_mic_mbc_comparison()
         self._render_mic_mbc_table()
+
+        # Budowa zakładek (wykresy) trwa chwilę - po jej zakończeniu okno
+        # bywa znowu za głównym oknem na niektórych menedżerach okien
+        # Windows, więc podnosimy je jeszcze raz na koniec.
+        self._bring_window_to_front(win)
+
+    def _bring_window_to_front(self, win):
+        """
+        UX (test na realnych danych): okno MIC/MBC otwierało się POD głównym
+        oknem aplikacji, nie na wierzchu. Windows/Tk czasem ignoruje samo
+        `.lift()` wywołane z callbacku przycisku, jeśli okno wywołujące ma
+        fokus - chwilowe wymuszenie "-topmost" i jego natychmiastowe
+        wyłączenie to standardowy, niezawodny sposób na wypchnięcie okna na
+        wierzch BEZ trwałego przypinania go tam na stałe (to nie ma być
+        modalne ani wiecznie "always on top" - użytkownik ma móc normalnie
+        przełączyć się z powrotem na główne okno później).
+        """
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(50, lambda: win.attributes("-topmost", False))
+        win.focus_force()
 
     def _clear_tab(self, tab):
         for w in tab.winfo_children():
