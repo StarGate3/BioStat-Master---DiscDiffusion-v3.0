@@ -461,17 +461,49 @@ class App(ctk.CTk):
         else: err_desc = "95% confidence interval (95% CI)"
 
         plot_type = self.plot_config["plot_type"]
-        if "Barplot" in plot_type: 
+        if "Barplot" in plot_type:
             viz_desc = "Bars represent the mean inhibition zone diameter"
-        else: 
+        else:
             viz_desc = "Boxplots represent the median and interquartile range (IQR), with whiskers extending to the minimum and maximum values"
+
+        # Audyt (Znalezisko 4): "error bars = SD/SEM of independent replicates"
+        # jest falszywe, gdy wiekszosc/wszystkie grupy maja n_bio=1 (np. caly
+        # stary, jednoarkuszowy format - aggregate_technical_replicates
+        # celowo kolapsuje kazda taka grupe do JEDNEGO wiersza, wiec SD/SEM
+        # miedzy powtorzeniami BIOLOGICZNYMI jest tam zawsze 0/NaN, mimo ze
+        # wykres pokazuje surowe powtorzenia techniczne). self.stats_summary
+        # (utils.build_group_summary, juz policzone przez run_analysis na
+        # TYCH SAMYCH danych co ten wykres) ma kolumne n_bio per grupe - to
+        # ten sam format-poziomu sygnal co self.low_n_bio_warning, tyle ze
+        # tu potrzebujemy UDZIALU grup z n_bio<2, nie tylko "czy jakakolwiek".
+        replicate_clause = f"Error bars indicate the {err_desc} between independent biological replicates."
+        replicate_clause_cross = "Error bars represent standard deviation between independent biological replicates."
+        if self.stats_summary is not None and not self.stats_summary.empty:
+            frac_low_n_bio = (self.stats_summary['n_bio'] < 2).mean()
+            if frac_low_n_bio > 0.5:
+                replicate_clause = (
+                    "Each group is represented by a single biological replicate "
+                    "(n_bio=1; technical replicates were averaged into this one value "
+                    "per group), so the plotted variability does not reflect independent "
+                    "biological replication."
+                )
+                # Rycina 6 (Porownanie Szczepow) uzywa tego samego mechanizmu
+                # agregacji (utils.aggregate_technical_replicates) na CALYM
+                # pliku (gui.py: df_bio_all) - a "stary/nowy format" jest
+                # cecha calego pliku, nie pojedynczej grupy, wiec ten sam
+                # sygnal n_bio jest zasadnym przyblizeniem tez dla niej.
+                replicate_clause_cross = (
+                    "Each group/strain is represented by a single biological replicate "
+                    "(n_bio=1; technical replicates were averaged into this one value), "
+                    "so error bars are not shown/not meaningful here."
+                )
 
         captions = f"""--- OPISY RYCIN (Scientific Captions) ---\n
 Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
 
 === Rycina 1: Wykres Główny ===
 Figure 1. Antibacterial activity of tested samples against {bact}.
-{viz_desc}. Error bars indicate the {err_desc} of independent replicates.
+{viz_desc}. {replicate_clause}
 Statistical significance was determined using {test_name}{posthoc_clause} for multiple comparisons.
 Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the negative control ({ref_group}).
 Red dashed line represents the diameter of the disk ({DISC_DIAMETER_MM:g} mm).
@@ -497,7 +529,7 @@ Shaded areas indicate the confidence interval. Spearman correlation coefficients
 === Rycina 6: Porównanie Szczepów ===
 Figure 6. Cross-species comparison of antibacterial activity.
 Bar chart summarizing the mean inhibition zone diameters for selected substances across different bacterial strains.
-Error bars represent standard deviation. This overview highlights the differential susceptibility of tested pathogens to the antimicrobial agents.
+{replicate_clause_cross} This overview highlights the differential susceptibility of tested pathogens to the antimicrobial agents.
 """
         text_area.insert("0.0", captions)
 
