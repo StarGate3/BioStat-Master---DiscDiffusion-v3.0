@@ -426,17 +426,34 @@ class App(ctk.CTk):
 
         bact = self.combo_bact.get()
         ref_group = self.combo_ref.get()
-        post_hoc = self.combo_method.get()
-        if post_hoc == "None": post_hoc = "no correction"
-        elif post_hoc == "fdr_bh": post_hoc = "Benjamini-Hochberg (FDR) correction"
-        elif post_hoc == "holm": post_hoc = "Holm-Bonferroni correction"
-        else: post_hoc = "Bonferroni correction"
+        used_correction_raw = self.combo_method.get()
+        if used_correction_raw == "None": correction_desc = "no correction"
+        elif used_correction_raw == "fdr_bh": correction_desc = "Benjamini-Hochberg (FDR) correction"
+        elif used_correction_raw == "holm": correction_desc = "Holm-Bonferroni correction"
+        else: correction_desc = "Bonferroni correction"
 
-        test_name = "Statistical test" 
+        # Audyt (Znalezisko 2): nazwa testu post-hoc musi odpowiadać temu, co
+        # logic.py FAKTYCZNIE wykonuje, nie ślepo temu, co wybrano w
+        # combo_method - gałąź ANOVA w run_statistics ZAWSZE używa Tukey's
+        # HSD (pairwise_tukeyhsd), niezależnie od wyboru w tym dropdownie;
+        # `method`/korekta z combo_method dotyczy WYŁĄCZNIE gałęzi
+        # Kruskal-Wallis (posthoc_dunn). Ten sam podział testu ANOVA/Kruskal
+        # jest już poprawnie zaimplementowany w dialogs.py (HelpDialog,
+        # sekcja "Automatyczny opis") - tu używamy tego samego źródła prawdy
+        # (export_stats_main[0]["Test"]), żeby nie rozjeżdżać się z nim.
+        test_name = "Statistical test"
+        posthoc_clause = ", followed by an appropriate post-hoc test"
+        posthoc_matrix_desc = "an appropriate post-hoc"
         if self.export_stats_main:
             used_test = self.export_stats_main[0].get("Test", "")
-            if "ANOVA" in used_test: test_name = "One-way ANOVA"
-            elif "Kruskal" in used_test: test_name = "Kruskal-Wallis test"
+            if "ANOVA" in used_test:
+                test_name = "One-way ANOVA"
+                posthoc_clause = ", followed by Tukey's HSD post-hoc test"
+                posthoc_matrix_desc = "Tukey's HSD"
+            elif "Kruskal" in used_test:
+                test_name = "Kruskal-Wallis test"
+                posthoc_clause = f", followed by Dunn's post-hoc test with {correction_desc}"
+                posthoc_matrix_desc = f"Dunn's post-hoc test with {correction_desc}"
 
         err_conf = self.plot_config["error_bar"]
         if "SD" in err_conf: err_desc = "standard deviation (SD)"
@@ -455,7 +472,7 @@ Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
 === Rycina 1: Wykres Główny ===
 Figure 1. Antibacterial activity of tested samples against {bact}.
 {viz_desc}. Error bars indicate the {err_desc} of independent replicates.
-Statistical significance was determined using {test_name} followed by {post_hoc} for multiple comparisons.
+Statistical significance was determined using {test_name}{posthoc_clause} for multiple comparisons.
 Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the negative control ({ref_group}).
 Red dashed line represents the diameter of the disk ({DISC_DIAMETER_MM:g} mm).
 
@@ -470,7 +487,7 @@ Dots represent the magnitude of the difference between groups. Green dots indica
 === Rycina 4: Mapa Istotności (P-value Matrix) ===
 Figure 4. Pairwise comparison significance matrix (P-values).
 The heatmap displays adjusted p-values for all pairwise comparisons. Blue shades indicate statistical significance (p < {ALPHA}), while red/white shades indicate non-significant differences.
-P-values were adjusted for multiple comparisons using the {post_hoc} method.
+P-values were adjusted for multiple comparisons using {posthoc_matrix_desc}.
 
 === Rycina 5: Trend Dawka-Odpowiedź ===
 Figure 5. Dose-response relationship of antibacterial activity.
