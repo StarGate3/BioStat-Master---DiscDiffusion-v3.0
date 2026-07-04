@@ -426,6 +426,22 @@ class App(ctk.CTk):
 
         bact = self.combo_bact.get()
         ref_group = self.combo_ref.get()
+
+        # Audyt (Znalezisko 1): "negative control" bylo bezwarunkowe, mimo ze
+        # combo_ref pozwala wybrac DOWOLNA grupe danego szczepu (gui.py,
+        # on_bacteria_change: self.combo_ref.configure(values=grupy_bact)) -
+        # np. swiadomie kontrole dodatnia jako referencje. utils.select_
+        # reference_group to ten sam, juz istniejacy mechanizm autodetekcji
+        # kontroli negatywnej uzywany przy zmianie szczepu - wywolujemy go
+        # ponownie tu i porownujemy z FAKTYCZNIE wybrana wartoscia, zamiast
+        # zakladac, ze cokolwiek jest w combo_ref musi byc kontrola negatywna.
+        is_negative_control = False
+        if self.df is not None and bact not in ("", "..."):
+            df_bact_ref = self.df[self.df[self.col_bact_name] == bact]
+            auto_neg_group, ref_ambiguous = utils.select_reference_group(df_bact_ref)
+            is_negative_control = (not ref_ambiguous) and (ref_group == auto_neg_group)
+        ref_desc = f"negative control ({ref_group})" if is_negative_control else f"reference group ({ref_group})"
+
         used_correction_raw = self.combo_method.get()
         if used_correction_raw == "None": correction_desc = "no correction"
         elif used_correction_raw == "fdr_bh": correction_desc = "Benjamini-Hochberg (FDR) correction"
@@ -505,7 +521,7 @@ Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
 Figure 1. Antibacterial activity of tested samples against {bact}.
 {viz_desc}. {replicate_clause}
 Statistical significance was determined using {test_name}{posthoc_clause} for multiple comparisons.
-Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the negative control ({ref_group}).
+Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the {ref_desc}.
 Red dashed line represents the diameter of the disk ({DISC_DIAMETER_MM:g} mm).
 
 === Rycina 2: Mapa Ciepła ===
