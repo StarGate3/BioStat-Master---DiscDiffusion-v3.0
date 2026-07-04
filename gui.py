@@ -514,6 +514,27 @@ class App(ctk.CTk):
                     "so error bars are not shown/not meaningful here."
                 )
 
+        # Audyt (Znalezisko 3): draw_effect_plot zwraca None (pusta zakladka
+        # "Wielkosc Efektu"), gdy nie ma zadnej pary z policzalnym (nie-NaN)
+        # Cohen's d i istotna statystycznie - m.in. zawsze tak jest, gdy
+        # KAZDA grupa ma n_bio<2 (Cohen's d wymaga n>=2 w obu grupach, patrz
+        # utils.calculate_cohens_d), czyli dla kazdego pliku w starym
+        # formacie (potwierdzone empirycznie na dane_disk.xlsx). Podpis nie
+        # moze opisywac ryciny, ktorej nie ma w zakladce.
+        if self.figures.get('effect') is not None:
+            rycina3_block = (
+                "=== Rycina 3: Mapa Wielkości Efektu (Effect Size) ===\n"
+                "Figure 3. Lollipop chart displaying the standardized effect size (Cohen's d) for statistically significant pairwise comparisons.\n"
+                "Dots represent the magnitude of the difference between groups. Green dots indicate a positive difference (Group 1 > Group 2), while red dots indicate a negative difference."
+            )
+        else:
+            rycina3_block = (
+                "=== Rycina 3: Mapa Wielkości Efektu (Effect Size) ===\n"
+                "Nie wygenerowano - dla bieżących danych brak jest jakiejkolwiek pary grup z policzalnym Cohen's d "
+                "(wymaga co najmniej 2 powtórzeń biologicznych w OBU porównywanych grupach) i istotnej statystycznie "
+                "zarazem. Nie kopiuj podpisu dla tej ryciny do manuskryptu - w bieżącej analizie ona nie istnieje."
+            )
+
         captions = f"""--- OPISY RYCIN (Scientific Captions) ---\n
 Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
 
@@ -528,9 +549,7 @@ Red dashed line represents the diameter of the disk ({DISC_DIAMETER_MM:g} mm).
 Figure 2. Heatmap visualizing the magnitude of growth inhibition zones (mm) for {bact} treated with various substances.
 Color intensity corresponds to the mean diameter of the inhibition zone. Warmer colors indicate higher antibacterial activity.
 
-=== Rycina 3: Mapa Wielkości Efektu (Effect Size) ===
-Figure 3. Lollipop chart displaying the standardized effect size (Cohen's d) for statistically significant pairwise comparisons.
-Dots represent the magnitude of the difference between groups. Green dots indicate a positive difference (Group 1 > Group 2), while red dots indicate a negative difference.
+{rycina3_block}
 
 === Rycina 4: Mapa Istotności (P-value Matrix) ===
 Figure 4. Pairwise comparison significance matrix (P-values).
