@@ -266,6 +266,34 @@ def _try_parse_numeric_control(value):
         return None
 
 
+def _try_parse_well_param(value):
+    """
+    Bezpiecznie sprowadza Stez_S1/Wsp_rozc do float. Zwraca None, gdy
+    wartość jest pusta/NaN albo nie da się jej przekształcić na liczbę
+    (np. literówka "5o") - NIGDY nie rzuca wyjątku, w przeciwieństwie do
+    bezpośredniego użycia surowej wartości w dzieleniu/porównaniu (naprawa
+    audytu 1.2 - jeden zły wiersz nie może wywalać całego arkusza). Liczbowy
+    tekst (np. "1024" jako komórka tekstowa) jest akceptowany, tak samo jak
+    utils.validate_excel_data robi to dla Srednica_mm w module dyfuzji.
+    """
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _excel_row_number(row):
+    """
+    Numer wiersza W EXCELU (nie w pandas) do komunikatów o odrzuceniu wiersza
+    - TA SAMA konwencja co utils.validate_excel_data: indeks pandas + 2
+    (zero-indexing + wiersz nagłówka), żeby wskazanie "który wiersz" było
+    spójne w całej aplikacji.
+    """
+    return row.name + 2
+
+
 def validate_run(kontrola_wzrostu_raw, kontrola_jalowosci_raw):
     """
     Sprawdza WAŻNOŚĆ przebiegu DWOMA NIEZALEŻNYMI warunkami - żaden nie może
@@ -385,18 +413,31 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
         if not is_valid:
             return _result(base, None, MIC_STATUS_INVALID_RUN, invalid_reason, None, [])
 
-    stez_s1 = row.get(COL_STEZ_S1)
-    wsp_rozc = row.get(COL_DILUTION_FACTOR)
-    if pd.isna(stez_s1) or pd.isna(wsp_rozc):
+    stez_s1_raw = row.get(COL_STEZ_S1)
+    wsp_rozc_raw = row.get(COL_DILUTION_FACTOR)
+    stez_s1 = _try_parse_well_param(stez_s1_raw)
+    wsp_rozc = _try_parse_well_param(wsp_rozc_raw)
+    excel_row = _excel_row_number(row)
+
+    if stez_s1 is None:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"Brak {COL_STEZ_S1!r} lub {COL_DILUTION_FACTOR!r} - nie można wyliczyć stężeń studzienek.",
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_STEZ_S1!r} ({stez_s1_raw!r}) - nie można "
+            f"przekształcić na liczbę. Wiersz pominięty.",
+            None, [],
+        )
+    if wsp_rozc is None:
+        return _result(
+            base, None, MIC_STATUS_NEEDS_REVIEW,
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_DILUTION_FACTOR!r} ({wsp_rozc_raw!r}) - nie "
+            f"można przekształcić na liczbę. Wiersz pominięty.",
             None, [],
         )
     if wsp_rozc <= 1:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"{COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg rozcieńczeń).",
+            f"Wiersz {excel_row}: {COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg "
+            f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
 
@@ -504,18 +545,31 @@ def _process_mbc_row(row, bact_col, well_cols, controls_df):
             None, [],
         )
 
-    stez_s1 = row.get(COL_STEZ_S1)
-    wsp_rozc = row.get(COL_DILUTION_FACTOR)
-    if pd.isna(stez_s1) or pd.isna(wsp_rozc):
+    stez_s1_raw = row.get(COL_STEZ_S1)
+    wsp_rozc_raw = row.get(COL_DILUTION_FACTOR)
+    stez_s1 = _try_parse_well_param(stez_s1_raw)
+    wsp_rozc = _try_parse_well_param(wsp_rozc_raw)
+    excel_row = _excel_row_number(row)
+
+    if stez_s1 is None:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"Brak {COL_STEZ_S1!r} lub {COL_DILUTION_FACTOR!r} - nie można wyliczyć stężeń studzienek.",
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_STEZ_S1!r} ({stez_s1_raw!r}) - nie można "
+            f"przekształcić na liczbę. Wiersz pominięty.",
+            None, [],
+        )
+    if wsp_rozc is None:
+        return _result(
+            base, None, MIC_STATUS_NEEDS_REVIEW,
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_DILUTION_FACTOR!r} ({wsp_rozc_raw!r}) - nie "
+            f"można przekształcić na liczbę. Wiersz pominięty.",
             None, [],
         )
     if wsp_rozc <= 1:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"{COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg rozcieńczeń).",
+            f"Wiersz {excel_row}: {COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg "
+            f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
 
@@ -599,6 +653,23 @@ def _high_median_entry(entries):
     return ordered[len(ordered) // 2]
 
 
+def _distinct_units(rows):
+    """Zbiera niepuste, przycięte, unikalne wartości Jednostka z listy
+    wierszy (posortowane, dla przewidywalnego wyświetlania) - budulec do
+    wykrywania niespójności jednostek (audyt 1.5, patrz summarize_mic_group)."""
+    units = set()
+    for r in rows:
+        u = r.get("Jednostka")
+        if u is None:
+            continue
+        if isinstance(u, float) and math.isnan(u):
+            continue
+        u_txt = str(u).strip()
+        if u_txt:
+            units.add(u_txt)
+    return sorted(units)
+
+
 def aggregate_technical_to_biological(row_results):
     """
     Redukuje powtórzenia TECHNICZNE (wiersze z process_mic_wizualny/
@@ -619,9 +690,19 @@ def aggregate_technical_to_biological(row_results):
     (mają realną, tylko zachowawczo wyznaczoną wartość) - liczymy je w
     n_flagged, żeby niepewność była widoczna w wyniku, a nie ukryta.
 
+    "unit" to Jednostka WYBRANEGO powtórzenia (pierwszy wiersz - jak
+    dotychczas, do samego wyświetlania). "tech_units" (audyt 1.5) to
+    NIEZALEŻNIE od tego - zbiór WSZYSTKICH odrębnych wartości Jednostka
+    zaobserwowanych wśród powtórzeń technicznych tego jednego powtórzenia
+    biologicznego (może mieć >1 element, gdy dane są niespójne - to
+    summarize_mic_group przenosi dalej do jawnego ostrzeżenia grupy, patrz
+    tam; ta funkcja tylko zbiera fakty, nie ostrzega sama).
+
     Zwraca dict: Bakteria, Substancja, Rep_biologiczna, mic_value, unit,
-    status, reason, censored, n_tech_total, n_tech_used, n_tech_excluded,
-    n_flagged.
+    tech_units, status, reason, censored, n_tech_total, n_tech_used,
+    n_tech_excluded, n_flagged. Klucz "rep_bio_fallback_warning" jest
+    dopisywany PRZEZ WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję -
+    patrz tam.
     """
     if not row_results:
         raise ValueError("aggregate_technical_to_biological: pusta lista wejściowa.")
@@ -633,6 +714,7 @@ def aggregate_technical_to_biological(row_results):
         "Rep_biologiczna": first.get("Rep_biologiczna"),
     }
     unit = first.get("Jednostka")
+    tech_units = _distinct_units(row_results)
 
     usable = []
     excluded_reasons = []
@@ -653,7 +735,7 @@ def aggregate_technical_to_biological(row_results):
             + " | ".join(excluded_reasons)
         )
         return {
-            **base, "mic_value": None, "unit": unit, "status": MIC_STATUS_NO_DATA,
+            **base, "mic_value": None, "unit": unit, "tech_units": tech_units, "status": MIC_STATUS_NO_DATA,
             "reason": reason, "censored": None,
             "n_tech_total": n_tech_total, "n_tech_used": 0,
             "n_tech_excluded": n_tech_excluded, "n_flagged": 0,
@@ -678,7 +760,7 @@ def aggregate_technical_to_biological(row_results):
         reason += f" UWAGA: {n_flagged}/{len(usable)} użytych odczytów miało status wymaga_weryfikacji."
 
     return {
-        **base, "mic_value": picked_row["mic_value"], "unit": unit,
+        **base, "mic_value": picked_row["mic_value"], "unit": unit, "tech_units": tech_units,
         "status": picked_row["status"], "reason": reason, "censored": picked_row["censored"],
         "n_tech_total": n_tech_total, "n_tech_used": len(usable),
         "n_tech_excluded": n_tech_excluded, "n_flagged": n_flagged,
@@ -722,6 +804,24 @@ def summarize_mic_group(bio_results):
         NIGDY nie jest to średnia arytmetyczna - liczona na log2, potem 2**x.
       - low_n_bio_warning (bool), warning (str | None) = MIC_LOW_N_BIO_WARNING
         gdy n_bio<2 - wynik nadal jest liczony i pokazany, tylko oznaczony.
+      - unit_warning (str | None) - patrz niżej.
+
+    ZAKRES SPRAWDZANIA SPÓJNOŚCI JEDNOSTEK (audyt 1.5) - uzasadnienie: cała
+    mediana/zakres/moda/średnia geometryczna tutaj oraz porównania między
+    grupami (compare_mic_groups) liczą się na log2(mic_value) z CAŁEJ puli
+    powtórzeń tej (Bakteria, Substancja) na raz - więc niespójność jednostek
+    GDZIEKOLWIEK w tej puli (czy to między powtórzeniami technicznymi
+    jednego powtórzenia biologicznego - patrz "tech_units" z
+    aggregate_technical_to_biological, czy między różnymi powtórzeniami
+    biologicznymi tej samej substancji - "unit" per bio-rep tutaj) jednakowo
+    unieważnia sens dalszej arytmetyki. Sprawdzanie WĘŻSZEGO zakresu (tylko
+    wewnątrz jednego powtórzenia biologicznego) przeoczyłoby przypadek, gdy
+    CAŁE powtórzenie nr 1 jest w mg/ml, a CAŁE powtórzenie nr 2 w µg/ml -
+    każde z osobna spójne, ale razem tak samo błędne jak zademonstrowany w
+    audycie przykład (50 mg/ml + 50 µg/ml). Dlatego sprawdzamy na poziomie
+    CAŁEJ GRUPY, łącząc jednostki z obu źródeł. To WYŁĄCZNIE ostrzeżenie -
+    nigdy nie blokuje ani nie przelicza jednostek (zbyt ryzykowne bez
+    jawnie podanego przelicznika).
     """
     if not bio_results:
         raise ValueError("summarize_mic_group: pusta lista wejściowa.")
@@ -732,6 +832,21 @@ def summarize_mic_group(bio_results):
     usable = [b for b in bio_results if b["mic_value"] is not None]
     n_bio_excluded = len(bio_results) - len(usable)
     n_flagged = sum(b.get("n_flagged", 0) for b in bio_results)
+    rep_bio_fallback_warnings = [b["rep_bio_fallback_warning"] for b in bio_results if b.get("rep_bio_fallback_warning")]
+    rep_bio_fallback_warning = "; ".join(rep_bio_fallback_warnings) if rep_bio_fallback_warnings else None
+
+    all_units = set()
+    for b in bio_results:
+        if b.get("unit") is not None and str(b["unit"]).strip():
+            all_units.add(str(b["unit"]).strip())
+        all_units.update(b.get("tech_units") or [])
+    unit_warning = None
+    if len(all_units) > 1:
+        units_txt = ", ".join(sorted(all_units))
+        unit_warning = (
+            f"Substancja {substancja!r} ({bakteria}): wykryto niespójne jednostki ({units_txt}). "
+            f"Wyniki mogą być nieporównywalne - ujednolić jednostki."
+        )
 
     if not usable:
         return {
@@ -741,6 +856,8 @@ def summarize_mic_group(bio_results):
             "range_max": _value_display(None, None, unit), "mode": None,
             "geo_mean": None, "geo_mean_reason": "Brak danych.",
             "low_n_bio_warning": True, "warning": MIC_LOW_N_BIO_WARNING,
+            "rep_bio_fallback_warning": rep_bio_fallback_warning,
+            "unit_warning": unit_warning,
         }
 
     entries = [{"log2": math.log2(b["mic_value"]), "censored": b["censored"], "source": b} for b in usable]
@@ -793,7 +910,70 @@ def summarize_mic_group(bio_results):
         "geo_mean": geo_mean, "geo_mean_reason": geo_mean_reason,
         "low_n_bio_warning": low_n_bio_warning,
         "warning": MIC_LOW_N_BIO_WARNING if low_n_bio_warning else None,
+        "rep_bio_fallback_warning": rep_bio_fallback_warning,
+        "unit_warning": unit_warning,
     }
+
+
+def _normalize_rep_bio(value):
+    """
+    Sprowadza surową wartość Rep_biologiczna do porównywalnej postaci przed
+    grupowaniem, żeby MIESZANE TYPY tej samej kolumny (typowy artefakt
+    Excela - część komórek sformatowana jako liczba, część jako tekst, np.
+    int 1 i str '1' dla tego samego zamierzonego powtórzenia) nie tworzyły
+    PO CICHU dwóch różnych kluczy grupowania (co po cichu rozbijałoby jedno
+    prawdziwe powtórzenie biologiczne na dwa - naprawa 1.3 audytu).
+
+    None/NaN/pusty string -> None (WSPÓLNY klucz "brak deklaracji" - patrz
+    aggregate_all: to jest właśnie fallback "cały wiersz = n_bio=1" znany z
+    modułu dyfuzji, celowo zachowany, ale teraz głośny gdy scala realnie
+    różne wartości, patrz _detect_rep_bio_fallback_warning).
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def _detect_rep_bio_fallback_warning(tech_rows):
+    """
+    tech_rows: wiersze techniczne, które trafiły do WSPÓLNEGO "fallback"
+    powtórzenia biologicznego (Rep_biologiczna brakowała/była pusta dla
+    wszystkich - patrz _normalize_rep_bio). Fallback sam w sobie jest
+    zamierzony (patrz utils.build_internal_representation - ta sama
+    konwencja co stary format dyfuzji: "brak deklaracji = n_bio=1"), ale
+    STAJE SIĘ MYLĄCY, gdy scalone wiersze mają WIĘCEJ NIŻ JEDNĄ odrębną
+    wartość endpointu (MIC albo MBC) - wtedy realna zmienność (biologiczna
+    albo błąd danych) znika bez śladu w raporcie (patrz audyt, przypadek
+    512/32/8 mg/ml -> "32-32" bez ostrzeżenia).
+
+    Zwraca czytelne ostrzeżenie z WYPISANYMI wykrytymi wartościami, albo
+    None gdy scalona grupa ma 0 lub 1 odrębną wartość (wtedy to zwykłe,
+    niegroźne n_bio=1 - baner MIC_LOW_N_BIO_WARNING już to pokrywa, nie ma
+    co dublować ostrzeżeniem bez powodu).
+    """
+    usable = [r for r in tech_rows if r.get("mic_value") is not None]
+    if len(usable) < 2:
+        return None
+
+    unit = usable[0].get("Jednostka")
+    distinct_display = {}
+    for r in usable:
+        disp = format_mic_display(r["mic_value"], r["censored"])
+        distinct_display.setdefault(disp, True)
+
+    if len(distinct_display) <= 1:
+        return None
+
+    values_txt = ", ".join(distinct_display.keys())
+    unit_txt = f" {unit}" if unit else ""
+    return (
+        f"Wykryto {len(distinct_display)} różne wartości scalone jako jedno powtórzenie "
+        f"biologiczne z powodu braku/niespójnej kolumny {COL_REP_BIO!r}: {values_txt}{unit_txt}. "
+        f"Uzupełnij {COL_REP_BIO!r}, aby analiza traktowała je jako osobne powtórzenia."
+    )
 
 
 def aggregate_all(row_results):
@@ -806,6 +986,22 @@ def aggregate_all(row_results):
     kiedyś tak wystąpiły w danych; rozstrzygnięcie pierwszeństwa
     MIC_wizualny/MIC_OD zostało już zasygnalizowane w Fazie 1).
 
+    Rep_biologiczna jest znormalizowana PRZED grupowaniem (_normalize_rep_bio)
+    - naprawia to ciche rozbicie jednego powtórzenia na dwa przy mieszanych
+    typach (int 1 vs str '1'). Gdy Rep_biologiczna brakuje/jest pusta dla
+    wielu wierszy tej samej (Bakteria, Substancja), trafiają one do JEDNEGO
+    wspólnego "fallback" powtórzenia (zamierzone, spójne ze starym formatem
+    dyfuzji) - ale jeśli to scalenie ukrywa więcej niż jedną odrębną
+    wartość endpointu, bio-rep dostaje jawne pole "rep_bio_fallback_warning"
+    (patrz _detect_rep_bio_fallback_warning), które summarize_mic_group
+    przenosi dalej do "summary", i stamtąd trafia wszędzie tam, gdzie inne
+    ostrzeżenia (wykres, tabela zbiorcza PDF/Excel).
+
+    Podobnie "summary['unit_warning']" sygnalizuje niespójne Jednostka w
+    obrębie całej grupy (Bakteria, Substancja) - patrz
+    aggregate_technical_to_biological/summarize_mic_group. Też WYŁĄCZNIE
+    ostrzeżenie, analiza liczy się dalej.
+
     NIE porównuje grup między sobą (brak testów istotności) - tylko opisuje
     każdą z osobna.
 
@@ -813,12 +1009,17 @@ def aggregate_all(row_results):
     """
     by_tech_group = defaultdict(list)
     for r in row_results:
-        key = (r.get("Bakteria"), r.get("Substancja"), r.get("Rep_biologiczna"))
+        norm_rep_bio = _normalize_rep_bio(r.get("Rep_biologiczna"))
+        key = (r.get("Bakteria"), r.get("Substancja"), norm_rep_bio)
         by_tech_group[key].append(r)
 
     bio_by_group = defaultdict(list)
-    for (bakteria, substancja, _rep_bio), tech_rows in by_tech_group.items():
-        bio_by_group[(bakteria, substancja)].append(aggregate_technical_to_biological(tech_rows))
+    for (bakteria, substancja, norm_rep_bio), tech_rows in by_tech_group.items():
+        bio_result = aggregate_technical_to_biological(tech_rows)
+        bio_result["rep_bio_fallback_warning"] = (
+            _detect_rep_bio_fallback_warning(tech_rows) if norm_rep_bio is None else None
+        )
+        bio_by_group[(bakteria, substancja)].append(bio_result)
 
     return {
         key: {"bio_results": bio_results, "summary": summarize_mic_group(bio_results)}
@@ -1376,12 +1577,20 @@ def build_mic_summary_rows(mic_grouped, mbc_grouped=None):
             warnings.append(f"MIC: {mic_summary['n_bio_excluded']} powtórzenie(a) biologiczne bez wartości (wykluczone).")
         if mic_summary and mic_summary.get("n_flagged"):
             warnings.append(f"MIC: {mic_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
+        if mic_summary and mic_summary.get("rep_bio_fallback_warning"):
+            warnings.append(f"MIC: {mic_summary['rep_bio_fallback_warning']}")
+        if mic_summary and mic_summary.get("unit_warning"):
+            warnings.append(f"MIC: {mic_summary['unit_warning']}")
         if mbc_summary and mbc_summary.get("warning"):
             warnings.append(f"MBC: {mbc_summary['warning']}")
         if mbc_summary and mbc_summary.get("n_bio_excluded"):
             warnings.append(f"MBC: {mbc_summary['n_bio_excluded']} powtórzenie(a) biologiczne bez wartości (wykluczone).")
         if mbc_summary and mbc_summary.get("n_flagged"):
             warnings.append(f"MBC: {mbc_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
+        if mbc_summary and mbc_summary.get("rep_bio_fallback_warning"):
+            warnings.append(f"MBC: {mbc_summary['rep_bio_fallback_warning']}")
+        if mbc_summary and mbc_summary.get("unit_warning"):
+            warnings.append(f"MBC: {mbc_summary['unit_warning']}")
 
         ratio_display, classification = None, None
         if mic_entry and mbc_entry:
