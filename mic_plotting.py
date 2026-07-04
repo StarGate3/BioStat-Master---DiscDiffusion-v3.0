@@ -133,6 +133,8 @@ def draw_mic_mbc_distribution(bact, substancja, mic_bio_results, mbc_bio_results
         summary = mic_logic.summarize_mic_group(bio_results) if bio_results else None
         if summary and summary.get("warning"):
             annotation_lines.append(f"{endpoint_name}: {summary['warning']}")
+        if summary and summary.get("rep_bio_fallback_warning"):
+            annotation_lines.append(f"{endpoint_name}: {summary['rep_bio_fallback_warning']}")
 
     _plot_series(mic_bio_results, y_positions["MIC"], MIC_COLOR, "MIC")
     if has_mbc:

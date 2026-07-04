@@ -621,7 +621,8 @@ def aggregate_technical_to_biological(row_results):
 
     Zwraca dict: Bakteria, Substancja, Rep_biologiczna, mic_value, unit,
     status, reason, censored, n_tech_total, n_tech_used, n_tech_excluded,
-    n_flagged.
+    n_flagged. Klucz "rep_bio_fallback_warning" jest dopisywany PRZEZ
+    WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję - patrz tam.
     """
     if not row_results:
         raise ValueError("aggregate_technical_to_biological: pusta lista wejściowa.")
@@ -732,6 +733,8 @@ def summarize_mic_group(bio_results):
     usable = [b for b in bio_results if b["mic_value"] is not None]
     n_bio_excluded = len(bio_results) - len(usable)
     n_flagged = sum(b.get("n_flagged", 0) for b in bio_results)
+    rep_bio_fallback_warnings = [b["rep_bio_fallback_warning"] for b in bio_results if b.get("rep_bio_fallback_warning")]
+    rep_bio_fallback_warning = "; ".join(rep_bio_fallback_warnings) if rep_bio_fallback_warnings else None
 
     if not usable:
         return {
@@ -741,6 +744,7 @@ def summarize_mic_group(bio_results):
             "range_max": _value_display(None, None, unit), "mode": None,
             "geo_mean": None, "geo_mean_reason": "Brak danych.",
             "low_n_bio_warning": True, "warning": MIC_LOW_N_BIO_WARNING,
+            "rep_bio_fallback_warning": rep_bio_fallback_warning,
         }
 
     entries = [{"log2": math.log2(b["mic_value"]), "censored": b["censored"], "source": b} for b in usable]
@@ -793,7 +797,69 @@ def summarize_mic_group(bio_results):
         "geo_mean": geo_mean, "geo_mean_reason": geo_mean_reason,
         "low_n_bio_warning": low_n_bio_warning,
         "warning": MIC_LOW_N_BIO_WARNING if low_n_bio_warning else None,
+        "rep_bio_fallback_warning": rep_bio_fallback_warning,
     }
+
+
+def _normalize_rep_bio(value):
+    """
+    Sprowadza surową wartość Rep_biologiczna do porównywalnej postaci przed
+    grupowaniem, żeby MIESZANE TYPY tej samej kolumny (typowy artefakt
+    Excela - część komórek sformatowana jako liczba, część jako tekst, np.
+    int 1 i str '1' dla tego samego zamierzonego powtórzenia) nie tworzyły
+    PO CICHU dwóch różnych kluczy grupowania (co po cichu rozbijałoby jedno
+    prawdziwe powtórzenie biologiczne na dwa - naprawa 1.3 audytu).
+
+    None/NaN/pusty string -> None (WSPÓLNY klucz "brak deklaracji" - patrz
+    aggregate_all: to jest właśnie fallback "cały wiersz = n_bio=1" znany z
+    modułu dyfuzji, celowo zachowany, ale teraz głośny gdy scala realnie
+    różne wartości, patrz _detect_rep_bio_fallback_warning).
+    """
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    text = str(value).strip()
+    return text if text else None
+
+
+def _detect_rep_bio_fallback_warning(tech_rows):
+    """
+    tech_rows: wiersze techniczne, które trafiły do WSPÓLNEGO "fallback"
+    powtórzenia biologicznego (Rep_biologiczna brakowała/była pusta dla
+    wszystkich - patrz _normalize_rep_bio). Fallback sam w sobie jest
+    zamierzony (patrz utils.build_internal_representation - ta sama
+    konwencja co stary format dyfuzji: "brak deklaracji = n_bio=1"), ale
+    STAJE SIĘ MYLĄCY, gdy scalone wiersze mają WIĘCEJ NIŻ JEDNĄ odrębną
+    wartość endpointu (MIC albo MBC) - wtedy realna zmienność (biologiczna
+    albo błąd danych) znika bez śladu w raporcie (patrz audyt, przypadek
+    512/32/8 mg/ml -> "32-32" bez ostrzeżenia).
+
+    Zwraca czytelne ostrzeżenie z WYPISANYMI wykrytymi wartościami, albo
+    None gdy scalona grupa ma 0 lub 1 odrębną wartość (wtedy to zwykłe,
+    niegroźne n_bio=1 - baner MIC_LOW_N_BIO_WARNING już to pokrywa, nie ma
+    co dublować ostrzeżeniem bez powodu).
+    """
+    usable = [r for r in tech_rows if r.get("mic_value") is not None]
+    if len(usable) < 2:
+        return None
+
+    unit = usable[0].get("Jednostka")
+    distinct_display = {}
+    for r in usable:
+        disp = format_mic_display(r["mic_value"], r["censored"])
+        distinct_display.setdefault(disp, True)
+
+    if len(distinct_display) <= 1:
+        return None
+
+    values_txt = ", ".join(distinct_display.keys())
+    unit_txt = f" {unit}" if unit else ""
+    return (
+        f"Wykryto {len(distinct_display)} różne wartości scalone jako jedno powtórzenie "
+        f"biologiczne z powodu braku/niespójnej kolumny {COL_REP_BIO!r}: {values_txt}{unit_txt}. "
+        f"Uzupełnij {COL_REP_BIO!r}, aby analiza traktowała je jako osobne powtórzenia."
+    )
 
 
 def aggregate_all(row_results):
@@ -806,6 +872,17 @@ def aggregate_all(row_results):
     kiedyś tak wystąpiły w danych; rozstrzygnięcie pierwszeństwa
     MIC_wizualny/MIC_OD zostało już zasygnalizowane w Fazie 1).
 
+    Rep_biologiczna jest znormalizowana PRZED grupowaniem (_normalize_rep_bio)
+    - naprawia to ciche rozbicie jednego powtórzenia na dwa przy mieszanych
+    typach (int 1 vs str '1'). Gdy Rep_biologiczna brakuje/jest pusta dla
+    wielu wierszy tej samej (Bakteria, Substancja), trafiają one do JEDNEGO
+    wspólnego "fallback" powtórzenia (zamierzone, spójne ze starym formatem
+    dyfuzji) - ale jeśli to scalenie ukrywa więcej niż jedną odrębną
+    wartość endpointu, bio-rep dostaje jawne pole "rep_bio_fallback_warning"
+    (patrz _detect_rep_bio_fallback_warning), które summarize_mic_group
+    przenosi dalej do "summary", i stamtąd trafia wszędzie tam, gdzie inne
+    ostrzeżenia (wykres, tabela zbiorcza PDF/Excel).
+
     NIE porównuje grup między sobą (brak testów istotności) - tylko opisuje
     każdą z osobna.
 
@@ -813,12 +890,17 @@ def aggregate_all(row_results):
     """
     by_tech_group = defaultdict(list)
     for r in row_results:
-        key = (r.get("Bakteria"), r.get("Substancja"), r.get("Rep_biologiczna"))
+        norm_rep_bio = _normalize_rep_bio(r.get("Rep_biologiczna"))
+        key = (r.get("Bakteria"), r.get("Substancja"), norm_rep_bio)
         by_tech_group[key].append(r)
 
     bio_by_group = defaultdict(list)
-    for (bakteria, substancja, _rep_bio), tech_rows in by_tech_group.items():
-        bio_by_group[(bakteria, substancja)].append(aggregate_technical_to_biological(tech_rows))
+    for (bakteria, substancja, norm_rep_bio), tech_rows in by_tech_group.items():
+        bio_result = aggregate_technical_to_biological(tech_rows)
+        bio_result["rep_bio_fallback_warning"] = (
+            _detect_rep_bio_fallback_warning(tech_rows) if norm_rep_bio is None else None
+        )
+        bio_by_group[(bakteria, substancja)].append(bio_result)
 
     return {
         key: {"bio_results": bio_results, "summary": summarize_mic_group(bio_results)}
@@ -1376,12 +1458,16 @@ def build_mic_summary_rows(mic_grouped, mbc_grouped=None):
             warnings.append(f"MIC: {mic_summary['n_bio_excluded']} powtórzenie(a) biologiczne bez wartości (wykluczone).")
         if mic_summary and mic_summary.get("n_flagged"):
             warnings.append(f"MIC: {mic_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
+        if mic_summary and mic_summary.get("rep_bio_fallback_warning"):
+            warnings.append(f"MIC: {mic_summary['rep_bio_fallback_warning']}")
         if mbc_summary and mbc_summary.get("warning"):
             warnings.append(f"MBC: {mbc_summary['warning']}")
         if mbc_summary and mbc_summary.get("n_bio_excluded"):
             warnings.append(f"MBC: {mbc_summary['n_bio_excluded']} powtórzenie(a) biologiczne bez wartości (wykluczone).")
         if mbc_summary and mbc_summary.get("n_flagged"):
             warnings.append(f"MBC: {mbc_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
+        if mbc_summary and mbc_summary.get("rep_bio_fallback_warning"):
+            warnings.append(f"MBC: {mbc_summary['rep_bio_fallback_warning']}")
 
         ratio_display, classification = None, None
         if mic_entry and mbc_entry:
