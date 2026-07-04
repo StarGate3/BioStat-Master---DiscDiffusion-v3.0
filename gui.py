@@ -13,6 +13,8 @@ from dialogs import OutlierDialog, HelpDialog, AboutDialog
 import reports
 from logic import StatsEngine
 from plotting import Plotter
+import mic_logic
+import mic_plotting
 from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI, REF_PLACEHOLDER
 
 ctk.set_appearance_mode("System")
@@ -43,6 +45,17 @@ class App(ctk.CTk):
         # --- ROUTER WIELOARKUSZOWY (MIC/MBC) ---
         self.route = None
         self.availability = {}
+
+        # --- MIC/MBC (Faza integracji GUI - audyt 1.1) ---
+        # Wyniki mic_logic.aggregate_all (Faza 3), policzone RAZ przy wczytaniu
+        # pliku dla WSZYSTKICH szczepów naraz (tak jak router) - klucz to
+        # (Bakteria, Substancja) -> {"bio_results":[...], "summary": {...}}.
+        # Całkowicie osobne od self.df/self.stats_summary itd. (dyfuzja) -
+        # nic tu nie może wpłynąć na ścieżkę dyfuzji.
+        self.mic_grouped = {}
+        self.mbc_grouped = {}
+        self.mic_mbc_window = None
+        self.mic_mbc_figures = {}
 
         # --- FIGURY ---
         self.figures = {
@@ -175,6 +188,20 @@ class App(ctk.CTk):
         self.btn_deselect_all = ctk.CTkButton(self.right_frame, text="Odznacz wszystko", width=100, fg_color="gray", command=self.deselect_all)
         self.btn_deselect_all.grid(row=5, column=0, padx=10, pady=(5, 20))
 
+        # --- Sekcja MIC/MBC (osobna od "Wybór próbek" powyżej - dyfuzja) ---
+        ctk.CTkFrame(self.right_frame, height=2, fg_color="gray").grid(row=6, column=0, sticky="ew", padx=10, pady=(0, 10))
+        ctk.CTkLabel(self.right_frame, text="Analiza MIC/MBC:", font=ctk.CTkFont(weight="bold")).grid(row=7, column=0, padx=10, pady=(0, 5))
+        self.lbl_mic_mbc_status = ctk.CTkLabel(
+            self.right_frame, text="Wczytaj plik, aby zobaczyć dostępność.",
+            justify="left", anchor="w", font=("Consolas", 11), wraplength=180,
+        )
+        self.lbl_mic_mbc_status.grid(row=8, column=0, padx=10, pady=(0, 5), sticky="w")
+        self.btn_run_mic_mbc = ctk.CTkButton(
+            self.right_frame, text="🧫 Uruchom analizę MIC/MBC", fg_color="#2E7D32", hover_color="#1B5E20",
+            state="disabled", command=self.open_mic_mbc_window,
+        )
+        self.btn_run_mic_mbc.grid(row=9, column=0, padx=10, pady=(0, 20))
+
     # ==================== LOGIKA POMOCNICZA ====================
     def log(self, text):
         self.textbox.insert("end", text + "\n")
@@ -246,6 +273,35 @@ class App(ctk.CTk):
             self.col_bact_name = bacteria_col
             self.lbl_file.configure(text=os.path.basename(path), text_color="white")
 
+            # --- Przetwarzanie MIC/MBC (audyt 1.1 - wpięcie do GUI) ---
+            # Całkowicie OSOBNE od ścieżki dyfuzji powyżej: reużywa wprost
+            # mic_logic.py (Fazy 2-3, bez zmian logiki), na WSZYSTKICH
+            # szczepach naraz (tak jak router) - filtrowanie per szczep
+            # dzieje się dopiero przy otwieraniu okna MIC/MBC. Błąd tutaj
+            # nigdy nie przerywa wczytania pliku dyfuzji - tylko ostrzega i
+            # zostawia MIC/MBC niedostępne.
+            self.mic_grouped = {}
+            self.mbc_grouped = {}
+            try:
+                mic_row_results = []
+                if route["mic_wizualny_raw_df"] is not None:
+                    mic_row_results += mic_logic.process_mic_wizualny(route["mic_wizualny_raw_df"], route["controls_raw_df"])
+                if route["mic_od_raw_df"] is not None:
+                    mic_row_results += mic_logic.process_mic_od(route["mic_od_raw_df"], route["controls_raw_df"])
+                if mic_row_results:
+                    self.mic_grouped = mic_logic.aggregate_all(mic_row_results)
+
+                if route["mbc_raw_df"] is not None:
+                    mbc_row_results = mic_logic.process_mbc(route["mbc_raw_df"], route["controls_raw_df"])
+                    if mbc_row_results:
+                        self.mbc_grouped = mic_logic.aggregate_all(mbc_row_results)
+            except Exception as e:
+                self.mic_grouped, self.mbc_grouped = {}, {}
+                messagebox.showwarning(
+                    "MIC/MBC",
+                    f"Nie udało się przetworzyć danych MIC/MBC: {e}\nAnaliza dyfuzji nie jest tym dotknięta."
+                )
+
             bacts = sorted(self.availability.keys())
             self.combo_bact.configure(values=bacts)
             self.combo_bact.set(bacts[0])
@@ -277,6 +333,7 @@ class App(ctk.CTk):
 
     def on_bacteria_change(self, selected_bact):
         avail = self.availability.get(selected_bact, {})
+        self._update_mic_mbc_panel(selected_bact, avail)
         if not avail.get('dyfuzja', False):
             # Ten szczep ma dane tylko dla MIC i/lub MBC (albo router go w ogóle
             # nie widział w arkuszu dyfuzji) - analiza dyfuzji jest dla niego
@@ -780,16 +837,286 @@ Error bars represent standard deviation. This overview highlights the differenti
         }
         
         success, msg = reports.generate_pdf(
-            file_path, 
-            meta, 
-            self.stats_summary, 
-            self.figures, 
+            file_path,
+            meta,
+            self.stats_summary,
+            self.figures,
             self.posthoc_detailed_results
         )
-        
+
         if success:
             messagebox.showinfo("Sukces", msg)
         else:
             messagebox.showerror("Błąd PDF", msg)
+
+    # ==================== MIC/MBC (integracja GUI - audyt 1.1) ====================
+    #
+    # Ta sekcja WYŁĄCZNIE podłącza istniejącą, przetestowaną logikę
+    # (mic_logic.py / mic_plotting.py / reports.py) do interfejsu - nic tu
+    # nie liczy niczego od nowa. Całkowicie osobna od sekcji dyfuzji powyżej:
+    # własne okno (CTkToplevel), własne zmienne stanu (self.mic_grouped/
+    # self.mbc_grouped/self._mic_mbc_state), żadna metoda dyfuzji nie jest
+    # tu modyfikowana.
+
+    def _update_mic_mbc_panel(self, selected_bact, avail=None):
+        """
+        Aktualizuje etykietę/przycisk MIC/MBC w prawym panelu dla wybranego
+        szczepu - reużywa WPROST mapę dostępności z routera (Faza 1),
+        niczego nie dedukuje samodzielnie. Wołana z on_bacteria_change.
+        """
+        if avail is None:
+            avail = self.availability.get(selected_bact, {})
+        has_mic = avail.get('mic', False)
+        has_mbc = avail.get('mbc', False)
+        mark = lambda ok: "✓" if ok else "✗"
+        self.lbl_mic_mbc_status.configure(text=f"{selected_bact}:\nMIC {mark(has_mic)}   MBC {mark(has_mbc)}")
+        self.btn_run_mic_mbc.configure(state="normal" if (has_mic or has_mbc) else "disabled")
+
+    def _mic_mbc_method(self):
+        """
+        Reużywa TĘ SAMĄ korektę post-hoc wybraną dla dyfuzji (combo_method),
+        żeby ustawienie było spójne między modułami - z zamianą "None"
+        (dyfuzja: brak korekty) na "holm", bo compare_mic_groups (Dunn's
+        test) nie ma opcji "brak korekty".
+        """
+        m = self.combo_method.get()
+        return m if m in ("holm", "fdr_bh", "bonferroni") else "holm"
+
+    @staticmethod
+    def _filter_grouped_by_strain(grouped, bact):
+        return {key: val for key, val in grouped.items() if key[0] == bact}
+
+    def open_mic_mbc_window(self):
+        """Punkt wejścia z przycisku '🧫 Uruchom analizę MIC/MBC'."""
+        bact = self.combo_bact.get()
+        avail = self.availability.get(bact, {})
+        if not (avail.get('mic') or avail.get('mbc')):
+            messagebox.showerror(
+                "Brak danych MIC/MBC",
+                f"Szczep '{bact}' nie ma danych MIC ani MBC w tym pliku.\n\n"
+                "Wybierz szczep, dla którego ta analiza jest dostępna (patrz panel 'Analiza MIC/MBC')."
+            )
+            return
+
+        mic_bact = self._filter_grouped_by_strain(self.mic_grouped, bact)
+        mbc_bact = self._filter_grouped_by_strain(self.mbc_grouped, bact)
+        substances = sorted({s for (_, s) in mic_bact} | {s for (_, s) in mbc_bact})
+        if not substances:
+            messagebox.showerror("Brak danych MIC/MBC", f"Nie znaleziono żadnej substancji MIC/MBC dla '{bact}'.")
+            return
+
+        if self.mic_mbc_window is not None and self.mic_mbc_window.winfo_exists():
+            self.mic_mbc_window.destroy()
+
+        win = ctk.CTkToplevel(self)
+        win.title(f"Analiza MIC/MBC: {bact}")
+        win.geometry("1100x750")
+        self.mic_mbc_window = win
+
+        self._mic_mbc_state = {"bact": bact, "mic_bact": mic_bact, "mbc_bact": mbc_bact, "substances": substances}
+        self.mic_mbc_figures = {}
+
+        top = ctk.CTkFrame(win)
+        top.pack(fill="x", padx=10, pady=(10, 5))
+        ctk.CTkLabel(top, text="Substancja:").pack(side="left", padx=(5, 5))
+        self.combo_mic_substance = ctk.CTkOptionMenu(
+            top, values=substances, command=lambda _v: self._refresh_mic_mbc_distribution()
+        )
+        self.combo_mic_substance.set(substances[0])
+        self.combo_mic_substance.pack(side="left", padx=(0, 20))
+
+        ctk.CTkButton(top, text="💾 Eksportuj Excel (MIC/MBC)", fg_color="#1F6AA5",
+                      command=self._export_mic_mbc_excel).pack(side="left", padx=5)
+        ctk.CTkButton(top, text="📄 Generuj PDF (MIC/MBC)", fg_color="#8B0000", hover_color="#600000",
+                      command=self._export_mic_mbc_pdf).pack(side="left", padx=5)
+
+        tabview = ctk.CTkTabview(win)
+        tabview.pack(fill="both", expand=True, padx=10, pady=(5, 10))
+        self.mic_mbc_tabview = tabview
+        self.tab_mic_dist = tabview.add("Rozkład MIC/MBC")
+        self.tab_mic_pairs = tabview.add("Pary MIC↔MBC")
+        self.tab_mic_compare = tabview.add("Porównanie substancji")
+        self.tab_mic_table = tabview.add("Tabela zbiorcza i ostrzeżenia")
+
+        self._refresh_mic_mbc_distribution()
+        self._render_mic_mbc_pairs()
+        self._render_mic_mbc_comparison()
+        self._render_mic_mbc_table()
+
+    def _clear_tab(self, tab):
+        for w in tab.winfo_children():
+            w.destroy()
+
+    def _embed_mic_mbc_figure(self, fig, tab, fig_key, scroll_parent=None):
+        parent = scroll_parent if scroll_parent is not None else tab
+        if fig is None:
+            ctk.CTkLabel(parent, text="Brak danych do wyświetlenia.").pack(pady=20)
+            return
+        self.mic_mbc_figures[fig_key] = fig
+        canvas = FigureCanvasTkAgg(fig, master=parent)
+        canvas.draw()
+        canvas.get_tk_widget().pack(fill="both", expand=True, padx=5, pady=5)
+
+    def _refresh_mic_mbc_distribution(self):
+        self._clear_tab(self.tab_mic_dist)
+        state = self._mic_mbc_state
+        bact = state["bact"]
+        sub = self.combo_mic_substance.get()
+        key = (bact, sub)
+        mic_bio = state["mic_bact"].get(key, {}).get("bio_results", [])
+        mbc_bio = state["mbc_bact"].get(key, {}).get("bio_results", [])
+        try:
+            fig = mic_plotting.draw_mic_mbc_distribution(bact, sub, mic_bio, mbc_bio, config=self.plot_config)
+        except Exception as e:
+            self._show_plot_error(self.tab_mic_dist, str(e))
+            return
+        self._embed_mic_mbc_figure(fig, self.tab_mic_dist, "mic_distribution")
+
+    def _render_mic_mbc_pairs(self):
+        self._clear_tab(self.tab_mic_pairs)
+        state = self._mic_mbc_state
+        bact = state["bact"]
+        pair_rows = []
+        for sub in state["substances"]:
+            key = (bact, sub)
+            mic_entry = state["mic_bact"].get(key)
+            mbc_entry = state["mbc_bact"].get(key)
+            if not mic_entry:
+                continue
+            mic_summary = mic_entry["summary"]
+            mbc_summary = mbc_entry["summary"] if mbc_entry else None
+            error_reason, classification, ratio_display = None, None, None
+            if mic_entry and mbc_entry:
+                paired, _unmatched = mic_logic.pair_mic_mbc_by_bio_rep(mic_entry["bio_results"], mbc_entry["bio_results"])
+                for p in paired:
+                    if p["ratio"]["status"] == "blad_spojnosci":
+                        error_reason = p["ratio"]["reason"]
+                        break
+                if paired and error_reason is None:
+                    ratio_summary = mic_logic.summarize_mbc_mic_ratio(paired)
+                    classification = ratio_summary["classification"]
+                    ratio_display = ratio_summary["ratio_display"]
+            pair_rows.append({
+                "Substancja": sub, "mic": mic_summary["median"],
+                "mbc": mbc_summary["median"] if mbc_summary else {"mic_value": None, "censored": None},
+                "classification": classification, "ratio_display": ratio_display, "error_reason": error_reason,
+            })
+        try:
+            fig = mic_plotting.draw_mic_mbc_pairs(bact, pair_rows, config=self.plot_config)
+        except Exception as e:
+            self._show_plot_error(self.tab_mic_pairs, str(e))
+            return
+        self._embed_mic_mbc_figure(fig, self.tab_mic_pairs, "mic_pairs")
+
+    def _render_mic_mbc_comparison(self):
+        self._clear_tab(self.tab_mic_compare)
+        scroll = ctk.CTkScrollableFrame(self.tab_mic_compare)
+        scroll.pack(fill="both", expand=True, padx=5, pady=5)
+        state = self._mic_mbc_state
+        bact = state["bact"]
+        method = self._mic_mbc_method()
+
+        any_plot = False
+        for endpoint_name, grouped, fig_key in (
+            ("MIC", state["mic_bact"], "mic_comparison"),
+            ("MBC", state["mbc_bact"], "mbc_comparison"),
+        ):
+            groups = {sub: grouped[(bact, sub)]["bio_results"] for sub in state["substances"] if (bact, sub) in grouped}
+            groups = {sub: bio for sub, bio in groups.items() if any(b.get("mic_value") is not None for b in bio)}
+            if len(groups) < 2:
+                continue
+            try:
+                comparison = mic_logic.compare_mic_groups(groups, method=method)
+                fig = mic_plotting.draw_mic_group_comparison(endpoint_name, comparison, label=bact, config=self.plot_config)
+            except Exception as e:
+                ctk.CTkLabel(scroll, text=f"Błąd porównania {endpoint_name}: {e}").pack(pady=10)
+                continue
+            self._embed_mic_mbc_figure(fig, self.tab_mic_compare, fig_key, scroll_parent=scroll)
+            any_plot = True
+
+        if not any_plot:
+            ctk.CTkLabel(
+                scroll,
+                text="Za mało substancji z danymi (potrzeba >=2) dla MIC lub MBC, żeby zbudować porównanie."
+            ).pack(pady=20)
+
+    def _render_mic_mbc_table(self):
+        self._clear_tab(self.tab_mic_table)
+        state = self._mic_mbc_state
+        table_rows = mic_logic.build_mic_summary_rows(state["mic_bact"], state["mbc_bact"])
+        replicate_rows = mic_logic.build_mic_replicate_rows(state["mic_bact"], state["mbc_bact"])
+        state["table_rows"] = table_rows
+        state["replicate_rows"] = replicate_rows
+
+        box = ctk.CTkTextbox(self.tab_mic_table, font=("Consolas", 12))
+        box.pack(fill="both", expand=True, padx=5, pady=5)
+
+        header = f"{'Substancja':<15}{'n_bio MIC':<11}{'MIC':<14}{'n_bio MBC':<11}{'MBC':<14}{'Iloraz':<9}{'Klasyfikacja':<18}\n"
+        box.insert("end", header)
+        box.insert("end", "-" * len(header) + "\n")
+        any_warning = False
+        for row in table_rows:
+            box.insert(
+                "end",
+                f"{row['Substancja']:<15}{row['n_bio_MIC']:<11}{row['MIC']:<14}{row['n_bio_MBC']:<11}"
+                f"{row['MBC']:<14}{row['Iloraz_MBC_MIC']:<9}{row['Klasyfikacja']:<18}\n"
+            )
+            if row["Uwagi"]:
+                any_warning = True
+                box.insert("end", f"    UWAGA: {row['Uwagi']}\n")
+        if not any_warning:
+            box.insert("end", "\n(Brak ostrzeżeń dla tego szczepu.)\n")
+
+        # Też do głównego logu aplikacji - widoczność "wszędzie", nie tylko w tym oknie.
+        self.log(f"=== MIC/MBC: {state['bact']} ===")
+        for row in table_rows:
+            self.log(
+                f"  {row['Substancja']}: MIC={row['MIC']} MBC={row['MBC']} "
+                f"iloraz={row['Iloraz_MBC_MIC']} klasyfikacja={row['Klasyfikacja']}"
+            )
+            if row["Uwagi"]:
+                self.log(f"    UWAGA: {row['Uwagi']}")
+
+    def _export_mic_mbc_excel(self):
+        state = getattr(self, "_mic_mbc_state", None)
+        if not state or not state.get("table_rows"):
+            messagebox.showwarning("Uwaga", "Najpierw otwórz analizę MIC/MBC.")
+            return
+        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel file", "*.xlsx")])
+        if not file_path:
+            return
+        warnings_list = [f"{r['Bakteria']} / {r['Substancja']}: {r['Uwagi']}" for r in state["table_rows"] if r["Uwagi"]]
+        try:
+            reports.export_mic_mbc_excel(file_path, state["table_rows"], state["replicate_rows"], warnings_list)
+            messagebox.showinfo("Sukces", f"Zapisano wyniki MIC/MBC w:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("Błąd Zapisu", str(e))
+
+    def _export_mic_mbc_pdf(self):
+        state = getattr(self, "_mic_mbc_state", None)
+        if not state or not state.get("table_rows"):
+            messagebox.showwarning("Uwaga", "Najpierw otwórz analizę MIC/MBC.")
+            return
+        file_path = filedialog.asksaveasfilename(defaultextension=".pdf", filetypes=[("PDF Document", "*.pdf")])
+        if not file_path:
+            return
+        figures = [
+            (title, self.mic_mbc_figures[key]) for key, title in (
+                ("mic_distribution", f"Rozkład MIC/MBC: {self.combo_mic_substance.get()}"),
+                ("mic_pairs", f"Odstęp MIC↔MBC: {state['bact']}"),
+                ("mic_comparison", f"Porównanie substancji (MIC): {state['bact']}"),
+                ("mbc_comparison", f"Porównanie substancji (MBC): {state['bact']}"),
+            ) if key in self.mic_mbc_figures
+        ]
+        meta = {"date": datetime.now().strftime('%Y-%m-%d %H:%M'), "bact": state["bact"]}
+        mic_mbc_data = {"bact": state["bact"], "table_rows": state["table_rows"], "figures": figures}
+        try:
+            success, msg = reports.generate_pdf(file_path, meta, mic_mbc_data=mic_mbc_data)
+            if success:
+                messagebox.showinfo("Sukces", msg)
+            else:
+                messagebox.showerror("Błąd PDF", msg)
+        except Exception as e:
+            messagebox.showerror("Błąd PDF", str(e))
 
 
