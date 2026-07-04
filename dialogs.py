@@ -233,9 +233,12 @@ class HelpDialog(ctk.CTkToplevel):
                        "Test Dixona uruchamia się automatycznie, ale tylko dla prób o liczebności N = 3 do 10. "
                        "Dla bardzo dużych prób (N > 10) test nie jest wykonywany, aby uniknąć błędów statystycznych.")
 
-        self.add_entry("Minimalna liczebność próby", 
-                       "Grupy posiadające mniej niż 2 wyniki (N < 2) są automatycznie pomijane w analizie statystycznej, "
-                       "ponieważ niemożliwe jest obliczenie dla nich odchylenia standardowego.")
+        self.add_entry("Minimalna liczebność próby",
+                       "Z analizy statystycznej pomijane są wyłącznie grupy CAŁKOWICIE puste (N=0). "
+                       "Grupa z jednym wynikiem (N=1 - np. brak replikacji biologicznej) NIE jest pomijana: "
+                       "test wciąż się wykonuje, ale taki wynik jest oznaczony jako orientacyjny, z jawnym "
+                       "ostrzeżeniem 'brak replikacji biologicznej' (widocznym m.in. na wykresie głównym) - "
+                       "bo dla N=1 nie da się policzyć odchylenia standardowego ani ocenić normalności rozkładu.")
 
         self.add_entry("Inteligentne Sortowanie", 
                        "Program stosuje tzw. 'Natural Sort Order'. Oznacza to, że grupy 'Próbka 2' i 'Próbka 10' "
