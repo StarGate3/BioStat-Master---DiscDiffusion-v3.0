@@ -237,11 +237,25 @@ def classify_od_well(od_value, kontrola_wzrostu, kontrola_jalowosci, threshold=M
 
 def lookup_controls(controls_df, przebieg):
     """
-    Zwraca dict {Kontrola_wzrostu, Kontrola_jalowosci, Inokulum_CFU_t0}
-    (wartości SUROWE - Kontrola_wzrostu/jalowosci mogą być liczbą OD albo
-    tekstem "wzrost"/"brak", patrz validate_run; Inokulum_CFU_t0 używane
-    tylko przez MBC) dla danego Przebiegu, albo None gdy controls_df jest
-    None, Przebieg jest pusty, albo nie ma dopasowania w arkuszu Kontrole.
+    Zwraca (ctrl, ambiguous_reason):
+      - (dict, None): dokładnie jedno dopasowanie w arkuszu Kontrole -
+        {Kontrola_wzrostu, Kontrola_jalowosci, Inokulum_CFU_t0} (wartości
+        SUROWE - Kontrola_wzrostu/jalowosci mogą być liczbą OD albo tekstem
+        "wzrost"/"brak", patrz validate_run; Inokulum_CFU_t0 używane tylko
+        przez MBC).
+      - (None, None): brak dopasowania - controls_df jest None, Przebieg
+        jest pusty, albo ta wartość Przebiegu w ogóle nie występuje w
+        arkuszu Kontrole.
+      - (None, str) (audyt 1.8): NIEJEDNOZNACZNE - arkusz Kontrole zawiera
+        WIĘCEJ NIŻ JEDEN wiersz dla tego samego Przebiegu. Zamiast po cichu
+        brać pierwszy napotkany wiersz (poprzednie zachowanie - który wiersz
+        jest "pierwszy" zależy od przypadkowej kolejności w pliku, więc
+        wybór byłby niedeterministyczny w duchu, nawet jeśli technicznie
+        powtarzalny), traktujemy to jak BRAK użytecznej kontroli, ale ze
+        zwróconym, jawnym powodem - spójnie z filozofią "nigdy nie zgaduj"
+        stosowaną gdzie indziej w programie (np. REF_PLACEHOLDER wymusza
+        ręczny wybór grupy referencyjnej zamiast zgadywać, gdy jest
+        niejednoznaczna).
 
     Dopasowanie jest PO SAMEJ WARTOŚCI `przebieg`, GLOBALNIE względem
     całego pliku - nie rozróżnia, z którego arkusza (MIC_wizualny/MIC_OD/
@@ -250,16 +264,22 @@ def lookup_controls(controls_df, przebieg):
     (audyt 1.7).
     """
     if controls_df is None or pd.isna(przebieg):
-        return None
+        return None, None
     matches = controls_df[controls_df[COL_RUN] == przebieg]
     if matches.empty:
-        return None
+        return None, None
+    if len(matches) > 1:
+        return None, (
+            f"Arkusz Kontrole zawiera {len(matches)} wpisy dla Przebiegu {przebieg!r} - "
+            f"niejednoznaczne, żaden z nich nie został użyty. Popraw arkusz Kontrole, tak by "
+            f"każdy Przebieg występował w nim dokładnie raz."
+        )
     row = matches.iloc[0]
     return {
         COL_GROWTH_CONTROL: row.get(COL_GROWTH_CONTROL),
         COL_STERILITY_CONTROL: row.get(COL_STERILITY_CONTROL),
         COL_INOCULUM: row.get(COL_INOCULUM),
-    }
+    }, None
 
 
 def _try_parse_numeric_control(value):
@@ -404,7 +424,9 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
     """
     base = _base_fields(row, bact_col)
     przebieg = row.get(COL_RUN)
-    ctrl = lookup_controls(controls_df, przebieg)
+    ctrl, ctrl_ambiguous_reason = lookup_controls(controls_df, przebieg)
+    if ctrl_ambiguous_reason:
+        return _result(base, None, MIC_STATUS_MISSING_CONTROLS, ctrl_ambiguous_reason, None, [])
     kw_num = _try_parse_numeric_control(ctrl.get(COL_GROWTH_CONTROL)) if ctrl is not None else None
     kj_num = _try_parse_numeric_control(ctrl.get(COL_STERILITY_CONTROL)) if ctrl is not None else None
     has_numeric_ctrl = kw_num is not None and kj_num is not None
@@ -542,7 +564,9 @@ def _process_mbc_row(row, bact_col, well_cols, controls_df):
     """
     base = _base_fields(row, bact_col)
     przebieg = row.get(COL_RUN)
-    ctrl = lookup_controls(controls_df, przebieg)
+    ctrl, ctrl_ambiguous_reason = lookup_controls(controls_df, przebieg)
+    if ctrl_ambiguous_reason:
+        return _result(base, None, MIC_STATUS_MISSING_CONTROLS, ctrl_ambiguous_reason, None, [])
 
     if ctrl is not None:
         is_valid, invalid_reason = validate_run(ctrl.get(COL_GROWTH_CONTROL), ctrl.get(COL_STERILITY_CONTROL))
