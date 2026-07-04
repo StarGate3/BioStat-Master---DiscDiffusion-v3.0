@@ -337,7 +337,25 @@ MBC_MIC_BACTERIOSTATIC_MIN_D: int = 3
 d = log2(MBC) - log2(MIC) (iloraz do wyświetlenia = 2**d): d<=2 (iloraz
 <=4) -> "bakteriobójcze"; d>=3 (iloraz >=8) -> "bakteriostatyczne". Progi
 podane wprost w specyfikacji zadania - odpowiadają powszechnie cytowanej
-klasycznej konwencji farmakologicznej (MBC/MIC <=4 = bakteriobójcze)."""
+klasycznej konwencji farmakologicznej (MBC/MIC <=4 = bakteriobójcze).
+
+UWAGA (audyt 1.4): te progi na skali log2 są zdefiniowane w literaturze
+DLA SERII DWUKROTNYCH ROZCIEŃCZEŃ (Wsp_rozc=2) - tylko wtedy każdy możliwy
+krok d jest liczbą całkowitą, więc próg "d<=2 albo d>=3" nigdy nie trafia
+w "martwą strefę" między nimi. Dla innego współczynnika (np. 5-krotnego,
+d=log2(5)=2.32) próg ten wypadałby w tej martwej strefie mimo w pełni
+dokładnego, niecenzurowanego pomiaru - dlatego mic_logic.compute_mbc_mic_ratio
+i mic_logic.summarize_mbc_mic_ratio liczą MIC/MBC/iloraz normalnie dla
+DOWOLNEGO Wsp_rozc, ale samą KLASYFIKACJĘ bakteriobójcze/bakteriostatyczne
+podają tylko, gdy Wsp_rozc == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR."""
+
+MBC_MIC_CLASSIFICATION_DILUTION_FACTOR: int = 2
+"""Jedyny współczynnik rozcieńczenia (Wsp_rozc), dla którego klasyfikacja
+bakteriobójcze/bakteriostatyczne (progi wyżej) jest w ogóle podawana -
+patrz uzasadnienie w komentarzu do MBC_MIC_BACTERICIDAL_MAX_D. Dla innego
+Wsp_rozc MIC, MBC i sam iloraz są liczone i pokazywane jak zawsze -
+niedostępna jest WYŁĄCZNIE etykieta bakteriobójcze/bakteriostatyczne,
+z jawnym powodem zamiast zgadywania."""
 
 # ============================================================
 # OUTLIER DETECTION - Dixon Q-test critical values (alpha = 0.10)

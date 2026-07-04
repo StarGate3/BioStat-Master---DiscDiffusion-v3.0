@@ -30,6 +30,7 @@ from config import (
     COL_GROWTH_CONTROL, COL_STERILITY_CONTROL, COL_INOCULUM,
     MIC_MEANINGFUL_DILUTION_DIFF, MIC_MAX_CENSORED_FRACTION, MIN_N_BIO_FOR_COMPARISON,
     ALPHA, MBC_REDUCTION_THRESHOLD, MBC_MIC_BACTERICIDAL_MAX_D, MBC_MIC_BACTERIOSTATIC_MIN_D,
+    MBC_MIC_CLASSIFICATION_DILUTION_FACTOR,
 )
 
 
@@ -370,6 +371,12 @@ def _base_fields(row, bact_col):
         "Jednostka": row.get(COL_UNIT),
         "Rep_biologiczna": row.get(COL_REP_BIO),
         "Rep_techniczna": row.get(COL_REP_TECH),
+        # Wsp_rozc: None tutaj (jeszcze niesparsowane w tym miejscu wywołania) -
+        # _process_row/_process_mbc_row nadpisuje wartością SPARSOWANĄ (float)
+        # zaraz po udanej walidacji, żeby compute_mbc_mic_ratio (audyt 1.4)
+        # wiedziało, czy seria była dwukrotna (jedyny współczynnik, dla którego
+        # klasyfikacja bakteriobójcze/bakteriostatyczne jest zdefiniowana).
+        "Wsp_rozc": None,
     }
 
 
@@ -440,6 +447,7 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
             f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
+    base["Wsp_rozc"] = wsp_rozc
 
     conc_growth_pairs = []
     wells_detail = []
@@ -572,6 +580,7 @@ def _process_mbc_row(row, bact_col, well_cols, controls_df):
             f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
+    base["Wsp_rozc"] = wsp_rozc
 
     conc_growth_pairs = []
     wells_detail = []
@@ -699,10 +708,12 @@ def aggregate_technical_to_biological(row_results):
     tam; ta funkcja tylko zbiera fakty, nie ostrzega sama).
 
     Zwraca dict: Bakteria, Substancja, Rep_biologiczna, mic_value, unit,
-    tech_units, status, reason, censored, n_tech_total, n_tech_used,
-    n_tech_excluded, n_flagged. Klucz "rep_bio_fallback_warning" jest
-    dopisywany PRZEZ WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję -
-    patrz tam.
+    tech_units, status, reason, censored, Wsp_rozc (audyt 1.4 - współczynnik
+    rozcieńczenia WYBRANEGO powtórzenia, potrzebny compute_mbc_mic_ratio do
+    ustalenia, czy klasyfikacja bakteriobójcze/bakteriostatyczne w ogóle ma
+    zastosowanie - patrz tam), n_tech_total, n_tech_used, n_tech_excluded,
+    n_flagged. Klucz "rep_bio_fallback_warning" jest dopisywany PRZEZ
+    WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję - patrz tam.
     """
     if not row_results:
         raise ValueError("aggregate_technical_to_biological: pusta lista wejściowa.")
@@ -736,7 +747,7 @@ def aggregate_technical_to_biological(row_results):
         )
         return {
             **base, "mic_value": None, "unit": unit, "tech_units": tech_units, "status": MIC_STATUS_NO_DATA,
-            "reason": reason, "censored": None,
+            "reason": reason, "censored": None, "Wsp_rozc": None,
             "n_tech_total": n_tech_total, "n_tech_used": 0,
             "n_tech_excluded": n_tech_excluded, "n_flagged": 0,
         }
@@ -762,6 +773,7 @@ def aggregate_technical_to_biological(row_results):
     return {
         **base, "mic_value": picked_row["mic_value"], "unit": unit, "tech_units": tech_units,
         "status": picked_row["status"], "reason": reason, "censored": picked_row["censored"],
+        "Wsp_rozc": picked_row.get("Wsp_rozc"),
         "n_tech_total": n_tech_total, "n_tech_used": len(usable),
         "n_tech_excluded": n_tech_excluded, "n_flagged": n_flagged,
     }
@@ -1366,7 +1378,22 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
     Gdy spójne: d_lo/d_hi to najciaśniejsza możliwa granica na d, z
     DOMYŚLNYM dolnym ograniczeniem d>=0 (bo MBC>=MIC jest wymuszone -
     nawet gdy surowa cenzura nie daje żadnej dolnej granicy, biologia
-    i tak ją daje). Klasyfikacja:
+    i tak ją daje). MIC, MBC i sam iloraz (d/d_lo/d_hi/ratio_display) są
+    liczone TAK SAMO niezależnie od współczynnika rozcieńczenia (Wsp_rozc)
+    użytego w danym powtórzeniu - to się NIE zmienia.
+
+    KLASYFIKACJA (audyt 1.4) - NATOMIAST jest podawana TYLKO, gdy zarówno
+    MIC, jak i MBC tego powtórzenia pochodzą z serii DWUKROTNYCH rozcieńczeń
+    (Wsp_rozc == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR). Uzasadnienie: progi
+    d<=2/d>=3 są zdefiniowane w literaturze właśnie dla serii dwukrotnych,
+    gdzie każdy możliwy krok d jest liczbą całkowitą - próg nigdy nie trafia
+    "między" 2 a 3. Dla innego współczynnika (np. 5-krotnego, gdzie jeden
+    krok to log2(5)=2.32) próg wypadałby w tej martwej strefie mimo w pełni
+    dokładnego pomiaru, co dawałoby fałszywe "nieoznaczalny" (patrz audyt).
+    Gdy współczynnik nie jest dwukrotny: classification="niedostępna" z
+    jawnym powodem - MIC/MBC/iloraz nadal są zwracane i pokazywane.
+
+    Gdy klasyfikacja MA zastosowanie (oba Wsp_rozc == 2):
       - d_hi <= MBC_MIC_BACTERICIDAL_MAX_D (2)   -> "bakteriobójcze" PEWNE
         (prawdziwe d nie może przekroczyć d_hi).
       - d_lo >= MBC_MIC_BACTERIOSTATIC_MIN_D (3) -> "bakteriostatyczne" PEWNE
@@ -1376,7 +1403,7 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
 
     Zwraca dict: status (ok/blad_spojnosci/nieoznaczalny/brak_danych),
     d (float|None, tylko gdy dokładne), d_lo, d_hi (float|None),
-    classification (bakteriobójcze/bakteriostatyczne/nieoznaczalny/None),
+    classification (bakteriobójcze/bakteriostatyczne/nieoznaczalny/niedostępna/None),
     ratio_display (str), reason (str).
     """
     if mic_result.get("mic_value") is None or mbc_result.get("mic_value") is None:
@@ -1410,8 +1437,29 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
     if d_hi is not None:
         d_hi = round(d_hi, 9)
     d_exact = d_lo if (d_hi is not None and d_lo == d_hi) else None
+    ratio_display = _format_ratio(d_exact, d_lo, d_hi)
 
-    if d_hi is not None and d_hi <= MBC_MIC_BACTERICIDAL_MAX_D:
+    # --- Audyt 1.4: klasyfikacja wymaga serii DWUKROTNEJ dla OBU wielkości ---
+    mic_wsp = mic_result.get("Wsp_rozc")
+    mbc_wsp = mbc_result.get("Wsp_rozc")
+    classification_applicable = (
+        mic_wsp == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR and mbc_wsp == MBC_MIC_CLASSIFICATION_DILUTION_FACTOR
+    )
+
+    if not classification_applicable:
+        classification = "niedostępna"
+        status = "ok" if d_exact is not None else "nieoznaczalny"
+        if mic_wsp is None or mbc_wsp is None:
+            wsp_desc = "nieznany"
+        elif mic_wsp == mbc_wsp:
+            wsp_desc = f"{mic_wsp:g}"
+        else:
+            wsp_desc = f"MIC={mic_wsp:g}, MBC={mbc_wsp:g}"
+        reason = (
+            f"Iloraz MBC/MIC = {ratio_display}. Klasyfikacja bakteriobójcze/bakteriostatyczne jest "
+            f"zdefiniowana dla serii dwukrotnych rozcieńczeń; przy Wsp_rozc={wsp_desc} nie jest podawana."
+        )
+    elif d_hi is not None and d_hi <= MBC_MIC_BACTERICIDAL_MAX_D:
         classification = "bakteriobójcze"
         status = "ok"
         reason = (
@@ -1436,7 +1484,7 @@ def compute_mbc_mic_ratio(mic_result, mbc_result):
 
     return {
         "status": status, "d": d_exact, "d_lo": d_lo, "d_hi": d_hi,
-        "classification": classification, "ratio_display": _format_ratio(d_exact, d_lo, d_hi),
+        "classification": classification, "ratio_display": ratio_display,
         "reason": reason,
     }
 
@@ -1479,6 +1527,13 @@ def _representative_d(ratio_result):
     której wiemy PEWNIE, po której stronie progu leży. "nieoznaczalny" i
     "blad_spojnosci"/"brak_danych" NIE mają defensywnej reprezentacji -
     zwracają None i są wykluczone z mediany grupowej (zliczone osobno).
+
+    "niedostępna" (audyt 1.4 - Wsp_rozc != 2) NADAL zwraca d, gdy jest ono
+    dokładne (ratio_result["d"] is not None) - to nadal poprawna, policzona
+    liczba, warta zachowania w medianie d dla RAPORTOWANIA (median_d/
+    ratio_display). To summarize_mbc_mic_ratio, nie ta funkcja, decyduje,
+    czy WYNIKOWA klasyfikacja grupy ma być podana, sprawdzając, czy
+    KTÓRYKOLWIEK z użytych wkładów miał classification="niedostępna".
     """
     if ratio_result["status"] in ("blad_spojnosci", "brak_danych"):
         return None
@@ -1520,7 +1575,18 @@ def summarize_mbc_mic_ratio(paired_results):
     median_entry = _high_median_entry(entries)
     median_d = round(median_entry["log2"], 9)
 
-    if median_d <= MBC_MIC_BACTERICIDAL_MAX_D:
+    # Audyt 1.4: jeśli KTÓREKOLWIEK z użytych powtórzeń miało klasyfikację
+    # "niedostępna" (Wsp_rozc != 2 dla MIC i/lub MBC tego powtórzenia), cała
+    # klasyfikacja GRUPOWA jest też "niedostępna" - median_d/ratio_display
+    # nadal są liczone i pokazywane normalnie (to poprawne liczby niezależnie
+    # od współczynnika rozcieńczenia), tylko etykieta bakteriobójcze/
+    # bakteriostatyczne nie jest zgadywana z mediany zbudowanej częściowo
+    # z niesklasyfikowalnych wkładów.
+    non_2fold = [p for p, d in usable if p["ratio"].get("classification") == "niedostępna"]
+
+    if non_2fold:
+        classification = "niedostępna"
+    elif median_d <= MBC_MIC_BACTERICIDAL_MAX_D:
         classification = "bakteriobójcze"
     elif median_d >= MBC_MIC_BACTERIOSTATIC_MIN_D:
         classification = "bakteriostatyczne"
@@ -1528,10 +1594,19 @@ def summarize_mbc_mic_ratio(paired_results):
         classification = "nieoznaczalny"
 
     n_bio = len(usable)
+    warning = MIC_LOW_N_BIO_WARNING if n_bio < 2 else None
+    if non_2fold:
+        cls_warning = (
+            f"Klasyfikacja bakteriobójcze/bakteriostatyczne niedostępna: {len(non_2fold)}/{n_bio} "
+            f"użytych powtórzeń nie pochodziło z serii dwukrotnych rozcieńczeń (klasyfikacja "
+            f"zdefiniowana tylko dla Wsp_rozc=={MBC_MIC_CLASSIFICATION_DILUTION_FACTOR:g})."
+        )
+        warning = f"{warning} {cls_warning}" if warning else cls_warning
+
     return {
         "n_bio": n_bio, "n_bio_excluded": n_bio_excluded, "median_d": median_d,
         "classification": classification, "ratio_display": f"{2 ** median_d:g}",
-        "warning": MIC_LOW_N_BIO_WARNING if n_bio < 2 else None,
+        "warning": warning,
     }
 
 
