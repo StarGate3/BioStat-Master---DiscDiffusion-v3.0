@@ -256,7 +256,19 @@ class Plotter:
         fig.tight_layout()
         return fig, None
 
-    def draw_effect_plot(self, posthoc_detailed_results):
+    def draw_effect_plot(self, posthoc_detailed_results, ref_group=None, show_all_pairs=False):
+        """
+        show_all_pairs=False (domyślnie - UX): pokazuje TYLKO istotne
+        porównania Z UDZIAŁEM ref_group (każda grupa vs grupa odniesienia),
+        spójnie z wykresem głównym, który też odnosi wszystko do ref_group.
+        Przy wielu grupach (np. 27) liczba WSZYSTKICH par (~350) sprawiała,
+        że etykiety osi Y zlewały się w nieczytelną masę - ograniczenie do
+        porównań z referencją zwykle sprowadza to do rzędu dziesiątek.
+        show_all_pairs=True (przełącznik w Opcjach Wykresu) przywraca stare
+        zachowanie (wszystkie istotne pary), dla kogoś, kto tego potrzebuje.
+        Gdy ref_group=None, show_all_pairs jest efektywnie wymuszone (nie ma
+        względem czego filtrować).
+        """
         if not posthoc_detailed_results: return None
 
         # Cohen's d jest NaN gdy n<2 w ktorejs z grup (np. brak replikacji
@@ -267,6 +279,12 @@ class Plotter:
             r for r in posthoc_detailed_results
             if r['Significant'] and not np.isnan(r["Cohen's d"])
         ]
+
+        if not show_all_pairs and ref_group:
+            sig_results = [
+                r for r in sig_results
+                if r['Group 1'] == ref_group or r['Group 2'] == ref_group
+            ]
 
         if not sig_results: return None
 
@@ -289,7 +307,11 @@ class Plotter:
         ax.set_yticks(y_pos)
         ax.set_yticklabels(labels, fontsize=self.config["font_labels"])
         ax.set_xlabel("Wielkość Efektu (Cohen's d)", fontsize=self.config["font_title"])
-        ax.set_title("Siła różnic między grupami (Istotne statystycznie)", fontsize=self.config["font_title"]+2)
+        if not show_all_pairs and ref_group:
+            title = f"Siła różnic vs '{ref_group}' (Istotne statystycznie)"
+        else:
+            title = "Siła różnic między grupami - wszystkie pary (Istotne statystycznie)"
+        ax.set_title(title, fontsize=self.config["font_title"]+2)
         
         for i, v in enumerate(values):
             offset = max(1, abs(v)*0.05) if v >= 0 else -max(1, abs(v)*0.05)
