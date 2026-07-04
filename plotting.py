@@ -189,7 +189,16 @@ class Plotter:
         ax = fig.add_subplot(111)
         
         mask = np.triu(np.ones_like(p_matrix, dtype=bool))
-        sns.heatmap(p_matrix, mask=mask, annot=True, fmt=".3f", 
+
+        # UX: 3 miejsca po przecinku (".3f") nie mieszczą się w komórce przy
+        # wielu grupach - 2 miejsca, WYJĄTEK: wartości <0.01 pokazane jako
+        # "<0.01" (żeby silnie istotny wynik nie wyglądał jak zaokrąglone
+        # "0.00" = pozornie brak istotności). Kolor komórki (cmap/center/
+        # vmin/vmax) BEZ ZMIAN - nadal niesie dokładną wielkość p-value
+        # niezależnie od zaokrąglonego podpisu tekstowego.
+        annot_labels = p_matrix.map(lambda v: "<0.01" if v < 0.01 else f"{v:.2f}")
+
+        sns.heatmap(p_matrix, mask=mask, annot=annot_labels, fmt="",
                     cmap="RdBu_r", center=ALPHA, vmin=0, vmax=1,
                     ax=ax, linewidths=1, linecolor='white',
                     cbar_kws={'label': 'P-value (Istotność)'})
