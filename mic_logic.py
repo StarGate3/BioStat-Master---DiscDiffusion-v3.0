@@ -1188,32 +1188,49 @@ def _check_layer3_guards(groups_entries):
     """
     groups_entries: dict {label: lista entries (z _bio_results_to_entries)}.
 
-    Sprawdza warunki Warstwy 3 w kolejności (a)-(d) z zadania. Zwraca dict:
-      - suppressed (bool): czy Warstwa 2 (test) ma być pominięta.
-      - reason (str | None): jawny powód wygaszenia (gdy suppressed=True).
-      - low_n_bio_warning (bool): czy KTÓRAKOLWIEK grupa ma n_bio=1 (test
-        i tak się liczy, ale z banerem - patrz (d)).
-      - blocked_groups (list[str]): etykiety grup z n_bio=0 (poniżej
-        MIN_N_BIO_FOR_COMPARISON) - blokują całe porównanie, nie tylko
-        wygaszają p-value.
+    Sprawdza warunki Warstwy 3. Zwraca dict:
+      - suppressed (bool): czy Warstwa 2 (test) ma być CAŁKOWICIE pominięta.
+      - reason (str | None): jawny powód WYGASZENIA (gdy suppressed=True) -
+        albo zbyt duża cenzura, albo mniej niż 2 grupy z danymi po
+        wykluczeniu pustych.
+      - low_n_bio_warning (bool): czy KTÓRAKOLWIEK z UŻYTYCH grup ma n_bio=1.
+      - excluded_empty_groups (list[str]): etykiety grup bez ŻADNEJ wartości
+        MIC (n_bio=0).
+
+    Audyt 1.6 (spójność z modułem dyfuzji): grupa bez żadnej wartości NIGDY
+    nie znika po cichu z wyniku - jest zawsze wymieniona w
+    excluded_empty_groups, a compare_mic_groups dokłada z tego jawną notatkę
+    do layer2, WIDOCZNĄ niezależnie od tego, czy test w ogóle się wykonał.
+    Sama pusta grupa NIE blokuje już całego porównania (jak wcześniej) -
+    jest WYKLUCZANA z testu Warstwy 2 (nie ma z niej czego liczyć), a test
+    biegnie na POZOSTAŁYCH grupach, jeśli zostaje ich >=2 - dokładnie tak,
+    jak moduł dyfuzji (gui.py.run_analysis) teraz też robi: wyklucz + jawnie
+    ostrzeż, zamiast całkiem blokować albo cicho pomijać.
     """
-    blocked_groups = [label for label, entries in groups_entries.items() if len(entries) < MIN_N_BIO_FOR_COMPARISON]
-    if blocked_groups:
+    excluded_empty_groups = [label for label, entries in groups_entries.items() if len(entries) == 0]
+    remaining_labels = [label for label in groups_entries if label not in excluded_empty_groups]
+
+    if len(remaining_labels) < 2:
+        parts = []
+        if excluded_empty_groups:
+            parts.append(f"grupa(y) bez żadnej wartości MIC (n_bio=0): {', '.join(excluded_empty_groups)}")
+        parts.append(
+            f"po ich wykluczeniu zostaje mniej niż 2 grupy z danymi "
+            f"({', '.join(remaining_labels) if remaining_labels else 'brak'})"
+        )
         return {
-            "suppressed": True, "blocked_groups": blocked_groups, "low_n_bio_warning": False,
-            "reason": (
-                f"Porównanie zablokowane: grupa(y) bez żadnej wartości MIC (n_bio=0): "
-                f"{', '.join(blocked_groups)}. Nie ma czego opisać ani porównać."
-            ),
+            "suppressed": True, "excluded_empty_groups": excluded_empty_groups, "low_n_bio_warning": False,
+            "reason": "Porównanie (Warstwa 2) niemożliwe: " + "; ".join(parts) + ".",
         }
 
-    low_n_bio_warning = any(len(entries) == 1 for entries in groups_entries.values())
+    low_n_bio_warning = any(len(groups_entries[label]) == 1 for label in remaining_labels)
 
-    # (a)/(b) odsetek cenzury (100% to szczegolny przypadek tego samego testu)
+    # (a)/(b) odsetek cenzury (100% to szczegolny przypadek tego samego testu) -
+    # liczony TYLKO na grupach UŻYTYCH w teście (bez pustych, wykluczonych wyżej).
     over_threshold = {
-        label: _censored_fraction(entries)
-        for label, entries in groups_entries.items()
-        if _censored_fraction(entries) > MIC_MAX_CENSORED_FRACTION
+        label: _censored_fraction(groups_entries[label])
+        for label in remaining_labels
+        if _censored_fraction(groups_entries[label]) > MIC_MAX_CENSORED_FRACTION
     }
     if over_threshold:
         parts = []
@@ -1228,9 +1245,15 @@ def _check_layer3_guards(groups_entries):
             f"efektem konwencji wiązania rang wartości cenzurowanych, nie realnego sygnału. "
             f"Zostaje opis z Warstwy 1 (mediana/zakres/różnica rozcieńczeń)."
         )
-        return {"suppressed": True, "blocked_groups": [], "low_n_bio_warning": low_n_bio_warning, "reason": reason}
+        return {
+            "suppressed": True, "excluded_empty_groups": excluded_empty_groups,
+            "low_n_bio_warning": low_n_bio_warning, "reason": reason,
+        }
 
-    return {"suppressed": False, "blocked_groups": [], "low_n_bio_warning": low_n_bio_warning, "reason": None}
+    return {
+        "suppressed": False, "excluded_empty_groups": excluded_empty_groups,
+        "low_n_bio_warning": low_n_bio_warning, "reason": None,
+    }
 
 
 # ============================================================
@@ -1248,12 +1271,20 @@ def compare_mic_groups(groups, method="holm"):
     ("holm" domyślnie, spójnie z modułem dyfuzji; "fdr_bh"/"bonferroni").
 
     Zwraca dict:
-      - descriptions: {etykieta: describe_mic_group(...)}                    [Warstwa 1]
+      - descriptions: {etykieta: describe_mic_group(...)}                    [Warstwa 1,
+        dla WSZYSTKICH grup przekazanych w `groups`, w tym pustych (n_bio=0,
+        opisywane jako "n/d") - pusta grupa NIGDY nie znika z opisu, nawet
+        jeśli jest wykluczona z testu Warstwy 2 (patrz layer2 niżej)]
       - pairwise: {(etykieta_a, etykieta_b): dilution_difference(...)}       [Warstwa 1,
         dla WSZYSTKICH par, zawsze liczone niezależnie od tego, czy test
         w Warstwie 2 się wykonał]
       - layer2: dict z kluczami attempted/suppressed_reason/low_n_bio_warning/
-        test/statistic/p_value/posthoc/correction_method               [Warstwa 2/3]
+        excluded_empty_groups/exclusion_note/test/statistic/p_value/posthoc/
+        correction_method. [Warstwa 2/3] excluded_empty_groups (audyt 1.6)
+        to grupy z n_bio=0 wykluczone z TEGO testu - exclusion_note opisuje
+        to jawnie i jest ustawiona NIEZALEŻNIE od tego, czy test w ogóle się
+        wykonał (attempted True albo False), żeby wykluczenie nigdy nie było
+        ciche.
     """
     if len(groups) < 2:
         raise ValueError("compare_mic_groups: potrzeba co najmniej 2 grup do porównania.")
@@ -1268,17 +1299,26 @@ def compare_mic_groups(groups, method="holm"):
     }
 
     guard = _check_layer3_guards(entries_by_group)
+    excluded_empty_groups = guard["excluded_empty_groups"]
+    remaining_labels = [label for label in labels if label not in excluded_empty_groups]
+    exclusion_note = (
+        f"Wykluczono z testu Warstwy 2 (brak żadnej wartości MIC, n_bio=0): "
+        f"{', '.join(excluded_empty_groups)}. Warstwa 1 (opis) nadal obejmuje te grupy jako 'n/d'."
+        if excluded_empty_groups else None
+    )
     layer2 = {
         "attempted": not guard["suppressed"],
         "suppressed_reason": guard["reason"],
         "low_n_bio_warning": guard["low_n_bio_warning"],
+        "excluded_empty_groups": excluded_empty_groups,
+        "exclusion_note": exclusion_note,
         "test": None, "statistic": None, "p_value": None,
         "posthoc": None, "correction_method": None,
     }
 
     if not guard["suppressed"]:
-        if len(labels) == 2:
-            a, b = labels
+        if len(remaining_labels) == 2:
+            a, b = remaining_labels
             # Surogat MUSI być liczony na PULI OBU grup naraz (nie osobno na
             # każdej) - inaczej wysoki surogat cenzury z grupy A mógłby
             # wypaść NIŻEJ niż realne wartości grupy B, łamiąc regułę
@@ -1293,14 +1333,14 @@ def compare_mic_groups(groups, method="holm"):
             layer2["p_value"] = float(p)
         else:
             pooled_entries, pooled_labels = [], []
-            for label in labels:
+            for label in remaining_labels:
                 for e in entries_by_group[label]:
                     pooled_entries.append(e)
                     pooled_labels.append(label)
             surrogate = _censoring_surrogate(pooled_entries)
             groups_for_kw = [
                 [surrogate[i] for i in range(len(surrogate)) if pooled_labels[i] == label]
-                for label in labels
+                for label in remaining_labels
             ]
             stat, p = stats.kruskal(*groups_for_kw)
             layer2["test"] = "Kruskal-Wallis"

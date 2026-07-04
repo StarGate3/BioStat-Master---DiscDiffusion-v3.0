@@ -633,7 +633,13 @@ Error bars represent standard deviation. This overview highlights the differenti
             (self.df[COL_GROUP].isin(wybrane))
         ].copy()
 
-        if df_run.empty: return
+        if df_run.empty:
+            messagebox.showerror(
+                "Brak danych dla wybranych grup",
+                f"Żadna z wybranych grup nie ma danych dla szczepu '{bact}'.\n\n"
+                "Sprawdź, czy wybrane grupy (panel 'Wybór próbek') rzeczywiście dotyczą tego szczepu."
+            )
+            return
 
         if not self._check_analysis_preconditions(df_run, wybrane):
             return
@@ -658,6 +664,22 @@ Error bars represent standard deviation. This overview highlights the differenti
         # powtórzenia techniczne liczyłyby się jako niezależne obserwacje
         # (pseudoreplikacja, zawyżona moc / zaniżone p-value).
         df_bio = utils.aggregate_technical_replicates(df_run, self.col_bact_name)
+
+        # Spójność "puste grupy" (audyt 1.6) - ujednolicone z modułem MIC/MBC
+        # (mic_logic._check_layer3_guards): grupa bez ŻADNEJ wartości nigdy
+        # nie znika po cichu z porównania - jest jawnie nazwana w komunikacie,
+        # nawet jeśli w praktyce zostaje wykluczona (nie ma z niej czego
+        # liczyć). NIE blokujemy całej analizy z tego powodu - checkboxy w
+        # 'Wybór próbek' są budowane ze WSZYSTKICH grup w całym pliku,
+        # niezależnie od wybranego szczepu (żeby zmiana szczepu nie gubiła
+        # zaznaczeń), więc "wybrana, ale nieistniejąca dla TEGO szczepu"
+        # grupa jest normalnym, częstym stanem, nie błędem - twarda blokada
+        # zmuszałaby do ręcznego odznaczania checkboxów przy każdej zmianie
+        # szczepu. Grupa może "zniknąć" też z drugiego powodu: usunięcie
+        # wartości odstających (Dixon) skasowało WSZYSTKIE jej wiersze.
+        present_groups = set(df_bio[COL_GROUP].unique())
+        missing_groups = [g for g in wybrane if g not in present_groups]
+
         self.stats_summary = utils.build_group_summary(df_bio)
         self.low_n_bio_warning = utils.has_low_n_bio(df_bio)
 
@@ -676,6 +698,11 @@ Error bars represent standard deviation. This overview highlights the differenti
             "UWAGA: program porównuje średnice stref zahamowania statystycznie i NIE wylicza "
             "klinicznych kategorii S/I/R (Susceptible/Intermediate/Resistant) wg CLSI (M100) ani EUCAST."
         )
+        if missing_groups:
+            self.log(
+                f"UWAGA: pominięto w porównaniu (brak jakichkolwiek danych dla '{bact}', albo "
+                f"wszystkie wartości usunięte jako odstające): {', '.join(missing_groups)}"
+            )
         if self.low_n_bio_warning:
             self.log("!" * 66)
             self.log("UWAGA: BRAK REPLIKACJI BIOLOGICZNEJ (n_bio<2) dla co najmniej jednej")
