@@ -266,6 +266,34 @@ def _try_parse_numeric_control(value):
         return None
 
 
+def _try_parse_well_param(value):
+    """
+    Bezpiecznie sprowadza Stez_S1/Wsp_rozc do float. Zwraca None, gdy
+    wartość jest pusta/NaN albo nie da się jej przekształcić na liczbę
+    (np. literówka "5o") - NIGDY nie rzuca wyjątku, w przeciwieństwie do
+    bezpośredniego użycia surowej wartości w dzieleniu/porównaniu (naprawa
+    audytu 1.2 - jeden zły wiersz nie może wywalać całego arkusza). Liczbowy
+    tekst (np. "1024" jako komórka tekstowa) jest akceptowany, tak samo jak
+    utils.validate_excel_data robi to dla Srednica_mm w module dyfuzji.
+    """
+    if pd.isna(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _excel_row_number(row):
+    """
+    Numer wiersza W EXCELU (nie w pandas) do komunikatów o odrzuceniu wiersza
+    - TA SAMA konwencja co utils.validate_excel_data: indeks pandas + 2
+    (zero-indexing + wiersz nagłówka), żeby wskazanie "który wiersz" było
+    spójne w całej aplikacji.
+    """
+    return row.name + 2
+
+
 def validate_run(kontrola_wzrostu_raw, kontrola_jalowosci_raw):
     """
     Sprawdza WAŻNOŚĆ przebiegu DWOMA NIEZALEŻNYMI warunkami - żaden nie może
@@ -385,18 +413,31 @@ def _process_row(row, bact_col, well_cols, controls_df, mode):
         if not is_valid:
             return _result(base, None, MIC_STATUS_INVALID_RUN, invalid_reason, None, [])
 
-    stez_s1 = row.get(COL_STEZ_S1)
-    wsp_rozc = row.get(COL_DILUTION_FACTOR)
-    if pd.isna(stez_s1) or pd.isna(wsp_rozc):
+    stez_s1_raw = row.get(COL_STEZ_S1)
+    wsp_rozc_raw = row.get(COL_DILUTION_FACTOR)
+    stez_s1 = _try_parse_well_param(stez_s1_raw)
+    wsp_rozc = _try_parse_well_param(wsp_rozc_raw)
+    excel_row = _excel_row_number(row)
+
+    if stez_s1 is None:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"Brak {COL_STEZ_S1!r} lub {COL_DILUTION_FACTOR!r} - nie można wyliczyć stężeń studzienek.",
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_STEZ_S1!r} ({stez_s1_raw!r}) - nie można "
+            f"przekształcić na liczbę. Wiersz pominięty.",
+            None, [],
+        )
+    if wsp_rozc is None:
+        return _result(
+            base, None, MIC_STATUS_NEEDS_REVIEW,
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_DILUTION_FACTOR!r} ({wsp_rozc_raw!r}) - nie "
+            f"można przekształcić na liczbę. Wiersz pominięty.",
             None, [],
         )
     if wsp_rozc <= 1:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"{COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg rozcieńczeń).",
+            f"Wiersz {excel_row}: {COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg "
+            f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
 
@@ -504,18 +545,31 @@ def _process_mbc_row(row, bact_col, well_cols, controls_df):
             None, [],
         )
 
-    stez_s1 = row.get(COL_STEZ_S1)
-    wsp_rozc = row.get(COL_DILUTION_FACTOR)
-    if pd.isna(stez_s1) or pd.isna(wsp_rozc):
+    stez_s1_raw = row.get(COL_STEZ_S1)
+    wsp_rozc_raw = row.get(COL_DILUTION_FACTOR)
+    stez_s1 = _try_parse_well_param(stez_s1_raw)
+    wsp_rozc = _try_parse_well_param(wsp_rozc_raw)
+    excel_row = _excel_row_number(row)
+
+    if stez_s1 is None:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"Brak {COL_STEZ_S1!r} lub {COL_DILUTION_FACTOR!r} - nie można wyliczyć stężeń studzienek.",
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_STEZ_S1!r} ({stez_s1_raw!r}) - nie można "
+            f"przekształcić na liczbę. Wiersz pominięty.",
+            None, [],
+        )
+    if wsp_rozc is None:
+        return _result(
+            base, None, MIC_STATUS_NEEDS_REVIEW,
+            f"Wiersz {excel_row}: nieprawidłowa wartość {COL_DILUTION_FACTOR!r} ({wsp_rozc_raw!r}) - nie "
+            f"można przekształcić na liczbę. Wiersz pominięty.",
             None, [],
         )
     if wsp_rozc <= 1:
         return _result(
             base, None, MIC_STATUS_NEEDS_REVIEW,
-            f"{COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg rozcieńczeń).",
+            f"Wiersz {excel_row}: {COL_DILUTION_FACTOR!r}={wsp_rozc:g} musi być > 1 (malejący szereg "
+            f"rozcieńczeń). Wiersz pominięty.",
             None, [],
         )
 
