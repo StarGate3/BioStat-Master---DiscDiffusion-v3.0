@@ -67,7 +67,11 @@ class App(ctk.CTk):
         self.plot_config = {
             "font_labels": 10, "font_title": 12, "axis_max": 0, "star_offset": 0.03, "bar_width": 0.8,
             "show_disk_line": True, "palette": "viridis", "transparent_background": True,
-            "plot_type": "Barplot (Słupkowy)", "error_bar": "SD (Odchylenie Std.)", "show_points": False
+            "plot_type": "Barplot (Słupkowy)", "error_bar": "SD (Odchylenie Std.)", "show_points": False,
+            # UX: domyślnie tylko porównania vs grupa odniesienia na wykresie
+            # wielkości efektu (spójnie z wykresem głównym) - przy wielu
+            # grupach wszystkie pary (setki) robiły z niego nieczytelną masę.
+            "effect_all_pairs": False,
         }
         
         self.available_palettes = ["viridis", "magma", "plasma", "inferno", "Blues", "Reds", "Greens", "Spectral", "coolwarm", "gray", "tab10"]
@@ -516,6 +520,13 @@ Error bars represent standard deviation. This overview highlights the differenti
         else: self.switch_trans.deselect()
         self.switch_trans.pack(pady=10)
 
+        self.switch_effect_all_pairs = ctk.CTkSwitch(
+            self.settings_win, text="Wielkość efektu: wszystkie pary (zamiast vs referencja)"
+        )
+        if self.plot_config["effect_all_pairs"]: self.switch_effect_all_pairs.select()
+        else: self.switch_effect_all_pairs.deselect()
+        self.switch_effect_all_pairs.pack(pady=10)
+
         ctk.CTkLabel(self.settings_win, text="Wielkość etykiet osi:").pack(pady=(5,5))
         self.slider_font_labels = ctk.CTkSlider(self.settings_win, from_=6, to=20, number_of_steps=14)
         self.slider_font_labels.set(self.plot_config["font_labels"])
@@ -544,7 +555,8 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.plot_config["palette"] = self.option_palette.get()
         self.plot_config["show_disk_line"] = bool(self.switch_line.get())
         self.plot_config["show_points"] = bool(self.switch_points.get()) 
-        self.plot_config["transparent_background"] = bool(self.switch_trans.get()) 
+        self.plot_config["transparent_background"] = bool(self.switch_trans.get())
+        self.plot_config["effect_all_pairs"] = bool(self.switch_effect_all_pairs.get())
         self.plot_config["font_labels"] = int(self.slider_font_labels.get())
         self.plot_config["font_title"] = int(self.slider_font_title.get())
         self.plot_config["star_offset"] = float(self.slider_star_offset.get())
@@ -762,7 +774,13 @@ Error bars represent standard deviation. This overview highlights the differenti
         # Porównanie międzygatunkowe - też na średnich biologicznych (cały self.df, wszystkie szczepy)
         df_bio_all = utils.aggregate_technical_replicates(self.df, self.col_bact_name)
         self.display_plot(lambda: self.plotter.draw_cross_species(df_bio_all, self.col_bact_name, wybrane), self.tab_cross, 'cross')
-        self.display_plot(lambda: self.plotter.draw_effect_plot(self.posthoc_detailed_results), self.tab_effect, 'effect')
+        self.display_plot(
+            lambda: self.plotter.draw_effect_plot(
+                self.posthoc_detailed_results, ref_group=ref_group,
+                show_all_pairs=self.plot_config.get("effect_all_pairs", False),
+            ),
+            self.tab_effect, 'effect'
+        )
 
         pca_res, pca_err = self.stats_engine.run_pca(self.df, self.col_bact_name, wybrane)
         if pca_res:
@@ -939,6 +957,7 @@ Error bars represent standard deviation. This overview highlights the differenti
         win.title(f"Analiza MIC/MBC: {bact}")
         win.geometry("1100x750")
         self.mic_mbc_window = win
+        self._bring_window_to_front(win)
 
         self._mic_mbc_state = {"bact": bact, "mic_bact": mic_bact, "mbc_bact": mbc_bact, "substances": substances}
         self.mic_mbc_figures = {}
@@ -969,6 +988,27 @@ Error bars represent standard deviation. This overview highlights the differenti
         self._render_mic_mbc_pairs()
         self._render_mic_mbc_comparison()
         self._render_mic_mbc_table()
+
+        # Budowa zakładek (wykresy) trwa chwilę - po jej zakończeniu okno
+        # bywa znowu za głównym oknem na niektórych menedżerach okien
+        # Windows, więc podnosimy je jeszcze raz na koniec.
+        self._bring_window_to_front(win)
+
+    def _bring_window_to_front(self, win):
+        """
+        UX (test na realnych danych): okno MIC/MBC otwierało się POD głównym
+        oknem aplikacji, nie na wierzchu. Windows/Tk czasem ignoruje samo
+        `.lift()` wywołane z callbacku przycisku, jeśli okno wywołujące ma
+        fokus - chwilowe wymuszenie "-topmost" i jego natychmiastowe
+        wyłączenie to standardowy, niezawodny sposób na wypchnięcie okna na
+        wierzch BEZ trwałego przypinania go tam na stałe (to nie ma być
+        modalne ani wiecznie "always on top" - użytkownik ma móc normalnie
+        przełączyć się z powrotem na główne okno później).
+        """
+        win.lift()
+        win.attributes("-topmost", True)
+        win.after(50, lambda: win.attributes("-topmost", False))
+        win.focus_force()
 
     def _clear_tab(self, tab):
         for w in tab.winfo_children():

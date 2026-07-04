@@ -189,7 +189,16 @@ class Plotter:
         ax = fig.add_subplot(111)
         
         mask = np.triu(np.ones_like(p_matrix, dtype=bool))
-        sns.heatmap(p_matrix, mask=mask, annot=True, fmt=".3f", 
+
+        # UX: 3 miejsca po przecinku (".3f") nie mieszczą się w komórce przy
+        # wielu grupach - 2 miejsca, WYJĄTEK: wartości <0.01 pokazane jako
+        # "<0.01" (żeby silnie istotny wynik nie wyglądał jak zaokrąglone
+        # "0.00" = pozornie brak istotności). Kolor komórki (cmap/center/
+        # vmin/vmax) BEZ ZMIAN - nadal niesie dokładną wielkość p-value
+        # niezależnie od zaokrąglonego podpisu tekstowego.
+        annot_labels = p_matrix.map(lambda v: "<0.01" if v < 0.01 else f"{v:.2f}")
+
+        sns.heatmap(p_matrix, mask=mask, annot=annot_labels, fmt="",
                     cmap="RdBu_r", center=ALPHA, vmin=0, vmax=1,
                     ax=ax, linewidths=1, linecolor='white',
                     cbar_kws={'label': 'P-value (Istotność)'})
@@ -247,7 +256,19 @@ class Plotter:
         fig.tight_layout()
         return fig, None
 
-    def draw_effect_plot(self, posthoc_detailed_results):
+    def draw_effect_plot(self, posthoc_detailed_results, ref_group=None, show_all_pairs=False):
+        """
+        show_all_pairs=False (domyślnie - UX): pokazuje TYLKO istotne
+        porównania Z UDZIAŁEM ref_group (każda grupa vs grupa odniesienia),
+        spójnie z wykresem głównym, który też odnosi wszystko do ref_group.
+        Przy wielu grupach (np. 27) liczba WSZYSTKICH par (~350) sprawiała,
+        że etykiety osi Y zlewały się w nieczytelną masę - ograniczenie do
+        porównań z referencją zwykle sprowadza to do rzędu dziesiątek.
+        show_all_pairs=True (przełącznik w Opcjach Wykresu) przywraca stare
+        zachowanie (wszystkie istotne pary), dla kogoś, kto tego potrzebuje.
+        Gdy ref_group=None, show_all_pairs jest efektywnie wymuszone (nie ma
+        względem czego filtrować).
+        """
         if not posthoc_detailed_results: return None
 
         # Cohen's d jest NaN gdy n<2 w ktorejs z grup (np. brak replikacji
@@ -258,6 +279,12 @@ class Plotter:
             r for r in posthoc_detailed_results
             if r['Significant'] and not np.isnan(r["Cohen's d"])
         ]
+
+        if not show_all_pairs and ref_group:
+            sig_results = [
+                r for r in sig_results
+                if r['Group 1'] == ref_group or r['Group 2'] == ref_group
+            ]
 
         if not sig_results: return None
 
@@ -280,7 +307,11 @@ class Plotter:
         ax.set_yticks(y_pos)
         ax.set_yticklabels(labels, fontsize=self.config["font_labels"])
         ax.set_xlabel("Wielkość Efektu (Cohen's d)", fontsize=self.config["font_title"])
-        ax.set_title("Siła różnic między grupami (Istotne statystycznie)", fontsize=self.config["font_title"]+2)
+        if not show_all_pairs and ref_group:
+            title = f"Siła różnic vs '{ref_group}' (Istotne statystycznie)"
+        else:
+            title = "Siła różnic między grupami - wszystkie pary (Istotne statystycznie)"
+        ax.set_title(title, fontsize=self.config["font_title"]+2)
         
         for i, v in enumerate(values):
             offset = max(1, abs(v)*0.05) if v >= 0 else -max(1, abs(v)*0.05)
