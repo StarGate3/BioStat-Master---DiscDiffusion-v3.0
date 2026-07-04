@@ -135,6 +135,8 @@ def draw_mic_mbc_distribution(bact, substancja, mic_bio_results, mbc_bio_results
             annotation_lines.append(f"{endpoint_name}: {summary['warning']}")
         if summary and summary.get("rep_bio_fallback_warning"):
             annotation_lines.append(f"{endpoint_name}: {summary['rep_bio_fallback_warning']}")
+        if summary and summary.get("unit_warning"):
+            annotation_lines.append(f"{endpoint_name}: {summary['unit_warning']}")
 
     _plot_series(mic_bio_results, y_positions["MIC"], MIC_COLOR, "MIC")
     if has_mbc:

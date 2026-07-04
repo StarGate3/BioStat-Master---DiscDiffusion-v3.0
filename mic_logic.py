@@ -653,6 +653,23 @@ def _high_median_entry(entries):
     return ordered[len(ordered) // 2]
 
 
+def _distinct_units(rows):
+    """Zbiera niepuste, przycięte, unikalne wartości Jednostka z listy
+    wierszy (posortowane, dla przewidywalnego wyświetlania) - budulec do
+    wykrywania niespójności jednostek (audyt 1.5, patrz summarize_mic_group)."""
+    units = set()
+    for r in rows:
+        u = r.get("Jednostka")
+        if u is None:
+            continue
+        if isinstance(u, float) and math.isnan(u):
+            continue
+        u_txt = str(u).strip()
+        if u_txt:
+            units.add(u_txt)
+    return sorted(units)
+
+
 def aggregate_technical_to_biological(row_results):
     """
     Redukuje powtórzenia TECHNICZNE (wiersze z process_mic_wizualny/
@@ -673,10 +690,19 @@ def aggregate_technical_to_biological(row_results):
     (mają realną, tylko zachowawczo wyznaczoną wartość) - liczymy je w
     n_flagged, żeby niepewność była widoczna w wyniku, a nie ukryta.
 
+    "unit" to Jednostka WYBRANEGO powtórzenia (pierwszy wiersz - jak
+    dotychczas, do samego wyświetlania). "tech_units" (audyt 1.5) to
+    NIEZALEŻNIE od tego - zbiór WSZYSTKICH odrębnych wartości Jednostka
+    zaobserwowanych wśród powtórzeń technicznych tego jednego powtórzenia
+    biologicznego (może mieć >1 element, gdy dane są niespójne - to
+    summarize_mic_group przenosi dalej do jawnego ostrzeżenia grupy, patrz
+    tam; ta funkcja tylko zbiera fakty, nie ostrzega sama).
+
     Zwraca dict: Bakteria, Substancja, Rep_biologiczna, mic_value, unit,
-    status, reason, censored, n_tech_total, n_tech_used, n_tech_excluded,
-    n_flagged. Klucz "rep_bio_fallback_warning" jest dopisywany PRZEZ
-    WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję - patrz tam.
+    tech_units, status, reason, censored, n_tech_total, n_tech_used,
+    n_tech_excluded, n_flagged. Klucz "rep_bio_fallback_warning" jest
+    dopisywany PRZEZ WYWOŁUJĄCEGO (aggregate_all), nie przez tę funkcję -
+    patrz tam.
     """
     if not row_results:
         raise ValueError("aggregate_technical_to_biological: pusta lista wejściowa.")
@@ -688,6 +714,7 @@ def aggregate_technical_to_biological(row_results):
         "Rep_biologiczna": first.get("Rep_biologiczna"),
     }
     unit = first.get("Jednostka")
+    tech_units = _distinct_units(row_results)
 
     usable = []
     excluded_reasons = []
@@ -708,7 +735,7 @@ def aggregate_technical_to_biological(row_results):
             + " | ".join(excluded_reasons)
         )
         return {
-            **base, "mic_value": None, "unit": unit, "status": MIC_STATUS_NO_DATA,
+            **base, "mic_value": None, "unit": unit, "tech_units": tech_units, "status": MIC_STATUS_NO_DATA,
             "reason": reason, "censored": None,
             "n_tech_total": n_tech_total, "n_tech_used": 0,
             "n_tech_excluded": n_tech_excluded, "n_flagged": 0,
@@ -733,7 +760,7 @@ def aggregate_technical_to_biological(row_results):
         reason += f" UWAGA: {n_flagged}/{len(usable)} użytych odczytów miało status wymaga_weryfikacji."
 
     return {
-        **base, "mic_value": picked_row["mic_value"], "unit": unit,
+        **base, "mic_value": picked_row["mic_value"], "unit": unit, "tech_units": tech_units,
         "status": picked_row["status"], "reason": reason, "censored": picked_row["censored"],
         "n_tech_total": n_tech_total, "n_tech_used": len(usable),
         "n_tech_excluded": n_tech_excluded, "n_flagged": n_flagged,
@@ -777,6 +804,24 @@ def summarize_mic_group(bio_results):
         NIGDY nie jest to średnia arytmetyczna - liczona na log2, potem 2**x.
       - low_n_bio_warning (bool), warning (str | None) = MIC_LOW_N_BIO_WARNING
         gdy n_bio<2 - wynik nadal jest liczony i pokazany, tylko oznaczony.
+      - unit_warning (str | None) - patrz niżej.
+
+    ZAKRES SPRAWDZANIA SPÓJNOŚCI JEDNOSTEK (audyt 1.5) - uzasadnienie: cała
+    mediana/zakres/moda/średnia geometryczna tutaj oraz porównania między
+    grupami (compare_mic_groups) liczą się na log2(mic_value) z CAŁEJ puli
+    powtórzeń tej (Bakteria, Substancja) na raz - więc niespójność jednostek
+    GDZIEKOLWIEK w tej puli (czy to między powtórzeniami technicznymi
+    jednego powtórzenia biologicznego - patrz "tech_units" z
+    aggregate_technical_to_biological, czy między różnymi powtórzeniami
+    biologicznymi tej samej substancji - "unit" per bio-rep tutaj) jednakowo
+    unieważnia sens dalszej arytmetyki. Sprawdzanie WĘŻSZEGO zakresu (tylko
+    wewnątrz jednego powtórzenia biologicznego) przeoczyłoby przypadek, gdy
+    CAŁE powtórzenie nr 1 jest w mg/ml, a CAŁE powtórzenie nr 2 w µg/ml -
+    każde z osobna spójne, ale razem tak samo błędne jak zademonstrowany w
+    audycie przykład (50 mg/ml + 50 µg/ml). Dlatego sprawdzamy na poziomie
+    CAŁEJ GRUPY, łącząc jednostki z obu źródeł. To WYŁĄCZNIE ostrzeżenie -
+    nigdy nie blokuje ani nie przelicza jednostek (zbyt ryzykowne bez
+    jawnie podanego przelicznika).
     """
     if not bio_results:
         raise ValueError("summarize_mic_group: pusta lista wejściowa.")
@@ -790,6 +835,19 @@ def summarize_mic_group(bio_results):
     rep_bio_fallback_warnings = [b["rep_bio_fallback_warning"] for b in bio_results if b.get("rep_bio_fallback_warning")]
     rep_bio_fallback_warning = "; ".join(rep_bio_fallback_warnings) if rep_bio_fallback_warnings else None
 
+    all_units = set()
+    for b in bio_results:
+        if b.get("unit") is not None and str(b["unit"]).strip():
+            all_units.add(str(b["unit"]).strip())
+        all_units.update(b.get("tech_units") or [])
+    unit_warning = None
+    if len(all_units) > 1:
+        units_txt = ", ".join(sorted(all_units))
+        unit_warning = (
+            f"Substancja {substancja!r} ({bakteria}): wykryto niespójne jednostki ({units_txt}). "
+            f"Wyniki mogą być nieporównywalne - ujednolić jednostki."
+        )
+
     if not usable:
         return {
             "Bakteria": bakteria, "Substancja": substancja,
@@ -799,6 +857,7 @@ def summarize_mic_group(bio_results):
             "geo_mean": None, "geo_mean_reason": "Brak danych.",
             "low_n_bio_warning": True, "warning": MIC_LOW_N_BIO_WARNING,
             "rep_bio_fallback_warning": rep_bio_fallback_warning,
+            "unit_warning": unit_warning,
         }
 
     entries = [{"log2": math.log2(b["mic_value"]), "censored": b["censored"], "source": b} for b in usable]
@@ -852,6 +911,7 @@ def summarize_mic_group(bio_results):
         "low_n_bio_warning": low_n_bio_warning,
         "warning": MIC_LOW_N_BIO_WARNING if low_n_bio_warning else None,
         "rep_bio_fallback_warning": rep_bio_fallback_warning,
+        "unit_warning": unit_warning,
     }
 
 
@@ -936,6 +996,11 @@ def aggregate_all(row_results):
     (patrz _detect_rep_bio_fallback_warning), które summarize_mic_group
     przenosi dalej do "summary", i stamtąd trafia wszędzie tam, gdzie inne
     ostrzeżenia (wykres, tabela zbiorcza PDF/Excel).
+
+    Podobnie "summary['unit_warning']" sygnalizuje niespójne Jednostka w
+    obrębie całej grupy (Bakteria, Substancja) - patrz
+    aggregate_technical_to_biological/summarize_mic_group. Też WYŁĄCZNIE
+    ostrzeżenie, analiza liczy się dalej.
 
     NIE porównuje grup między sobą (brak testów istotności) - tylko opisuje
     każdą z osobna.
@@ -1514,6 +1579,8 @@ def build_mic_summary_rows(mic_grouped, mbc_grouped=None):
             warnings.append(f"MIC: {mic_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
         if mic_summary and mic_summary.get("rep_bio_fallback_warning"):
             warnings.append(f"MIC: {mic_summary['rep_bio_fallback_warning']}")
+        if mic_summary and mic_summary.get("unit_warning"):
+            warnings.append(f"MIC: {mic_summary['unit_warning']}")
         if mbc_summary and mbc_summary.get("warning"):
             warnings.append(f"MBC: {mbc_summary['warning']}")
         if mbc_summary and mbc_summary.get("n_bio_excluded"):
@@ -1522,6 +1589,8 @@ def build_mic_summary_rows(mic_grouped, mbc_grouped=None):
             warnings.append(f"MBC: {mbc_summary['n_flagged']} odczyt(y) techniczne oznaczone jako wymaga_weryfikacji.")
         if mbc_summary and mbc_summary.get("rep_bio_fallback_warning"):
             warnings.append(f"MBC: {mbc_summary['rep_bio_fallback_warning']}")
+        if mbc_summary and mbc_summary.get("unit_warning"):
+            warnings.append(f"MBC: {mbc_summary['unit_warning']}")
 
         ratio_display, classification = None, None
         if mic_entry and mbc_entry:
