@@ -218,9 +218,21 @@ def classify_od_well(od_value, kontrola_wzrostu, kontrola_jalowosci, threshold=M
     MIC_OD: studzienka to liczba OD. Sprowadzana do wzrost/brak progiem
     względnym: procent_wzrostu = (OD - tło) / (Kontrola_wzrostu - tło),
     gdzie tło = Kontrola_jalowosci. "brak" gdy procent_wzrostu < threshold.
-    Zwraca None gdy od_value brakuje, albo gdy mianownik jest niedodatni
-    (nie powinno się zdarzyć po przejściu validate_run, ale zabezpieczenie
-    przed dzieleniem przez zero/ujemną liczbę zamiast wyjątku).
+    Zwraca None gdy od_value brakuje, albo gdy mianownik jest niedodatni.
+
+    UWAGA (audyt 1.10) - decyzja świadoma, nie przeoczenie: w OBECNYM
+    przepływie (_process_row, tryb "od") to zabezpieczenie jest technicznie
+    nieosiągalne - validate_run zawsze wykonuje się WCZEŚNIEJ i odrzuca
+    przebieg, jeśli (Kontrola_wzrostu - Kontrola_jalowosci) < próg > 0
+    (patrz MIC_OD_MIN_GROWTH_SIGNAL), więc denom>0 jest tam już
+    zagwarantowane. Zostaje mimo to CELOWO: classify_od_well jest małą,
+    samodzielną funkcją czystą (łatwą do testowania w izolacji, co ten
+    plik regularnie robi), a nie chcemy, żeby jej POPRAWNOŚĆ zależała od
+    tego, że KAŻDY przyszły wywołujący pamięta o wcześniejszym wywołaniu
+    validate_run. To zabezpieczenie WŁASNEGO niezmiennika funkcji (nigdy
+    nie dziel przez zero/liczbę ujemną), niezależne od dyscypliny
+    wywołującego kodu - tańsze niż ryzyko ZeroDivisionError/mylącego
+    wyniku, gdyby ta funkcja została kiedyś wywołana z innego miejsca.
     """
     if pd.isna(od_value):
         return None
