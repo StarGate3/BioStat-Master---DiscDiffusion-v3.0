@@ -15,7 +15,7 @@ from logic import StatsEngine
 from plotting import Plotter
 import mic_logic
 import mic_plotting
-from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI, REF_PLACEHOLDER
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI, REF_PLACEHOLDER, MIC_MEANINGFUL_DILUTION_DIFF
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -595,6 +595,18 @@ Bar chart summarizing the mean inhibition zone diameters for selected substances
         mbc_bio = state["mbc_bact"].get(key, {}).get("bio_results", [])
         has_mbc = bool(mbc_bio)
 
+        # Rycina M3 (Znalezisko 2 z Fazy 1, ten sam wzorzec): nazwa korekty
+        # musi odpowiadać temu, co compare_mic_groups FAKTYCZNIE dostaje -
+        # self._mic_mbc_method() zamienia "None" (dyfuzja: brak korekty) na
+        # "holm", bo porównania MIC/MBC (Dunn's test) nie mają opcji braku
+        # korekty - używamy WYNIKU tej metody, nie surowego combo_method.get().
+        correction_map = {
+            "holm": "Holm-Bonferroni correction",
+            "fdr_bh": "Benjamini-Hochberg (FDR) correction",
+            "bonferroni": "Bonferroni correction",
+        }
+        mic_mbc_correction = correction_map.get(self._mic_mbc_method(), "Holm-Bonferroni correction")
+
         mic_desc = mic_logic.describe_mic_group(mic_bio) if mic_bio else None
         mbc_desc = mic_logic.describe_mic_group(mbc_bio) if mbc_bio else None
         n_bio_mic = mic_desc["n_bio"] if mic_desc else 0
@@ -645,6 +657,22 @@ underlying dilution series is two-fold (Wsp_rozc=2); for any other dilution fact
 MIC/MBC values and their ratio are still shown, but labelled "unavailable" instead of
 assigned a category. Pairs marked with a red "X" indicate an internal consistency error
 (MBC below MIC) and are excluded from classification rather than silently resolved.
+
+=== Rycina M3: Porównanie MIC/MBC między substancjami ===
+Figure M3a. Comparison of MIC values across tested substances against {bact}.
+Figure M3b. Comparison of MBC values across tested substances against {bact}.
+Each substance/group is represented by the median of its biological-replicate values on
+the dilution-step (log2) scale. Group comparisons were performed on these dilution-step
+values using the Kruskal-Wallis test (Mann-Whitney U for two groups) with Dunn's
+post-hoc test and {mic_mbc_correction} for multiple comparisons. A difference between two
+medians is additionally flagged as "meaningful" only when it spans at least
+{MIC_MEANINGFUL_DILUTION_DIFF:g} two-fold dilution steps, independent of statistical
+significance, so that a difference too small to be methodologically distinguishable at
+this resolution is not over-interpreted as biologically relevant. Where a group's
+significance test could not be computed (e.g. more than half its values were censored,
+or fewer than two groups had usable data), this is stated explicitly instead of the
+comparison being silently omitted; groups resting on a single biological replicate
+(n_bio=1) are flagged as orientational.
 """
         text_area.insert("0.0", captions)
 
