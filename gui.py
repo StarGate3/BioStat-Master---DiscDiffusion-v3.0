@@ -568,6 +568,69 @@ Bar chart summarizing the mean inhibition zone diameters for selected substances
 """
         text_area.insert("0.0", captions)
 
+    def open_mic_mbc_caption_window(self):
+        """
+        Generator opisów rycin do publikacji dla modułu MIC/MBC - odpowiednik
+        open_caption_window, ale dla czterech wyjść okna MIC/MBC (Rozkład,
+        Pary MIC<->MBC, Porównanie substancji, Tabela zbiorcza). Rycina M1
+        (Rozkład) jest opisywana DLA AKTUALNIE WYBRANEJ substancji w
+        combo_mic_substance - tak jak sam wykres w zakładce "Rozkład
+        MIC/MBC" - reszta (M2/M3/Tabela) obejmuje wszystkie substancje
+        naraz, dokładnie tak jak te wykresy/tabela są budowane.
+        """
+        win = ctk.CTkToplevel(self)
+        win.title("Generator Opisów do Publikacji (MIC/MBC)")
+        win.geometry("700x600")
+        self._bring_window_to_front(win)
+
+        text_area = ctk.CTkTextbox(win, font=("Arial", 12), wrap="word")
+        text_area.pack(fill="both", expand=True, padx=10, pady=10)
+
+        state = self._mic_mbc_state
+        bact = state["bact"]
+        sub = self.combo_mic_substance.get()
+        key = (bact, sub)
+
+        mic_bio = state["mic_bact"].get(key, {}).get("bio_results", [])
+        mbc_bio = state["mbc_bact"].get(key, {}).get("bio_results", [])
+        has_mbc = bool(mbc_bio)
+
+        mic_desc = mic_logic.describe_mic_group(mic_bio) if mic_bio else None
+        mbc_desc = mic_logic.describe_mic_group(mbc_bio) if mbc_bio else None
+        n_bio_mic = mic_desc["n_bio"] if mic_desc else 0
+        n_bio_mbc = mbc_desc["n_bio"] if mbc_desc else 0
+        low_n_bio_m1 = (0 < n_bio_mic < 2) or (has_mbc and 0 < n_bio_mbc < 2)
+
+        title_suffix = " (and MBC)" if has_mbc else ""
+        mbc_row_sentence = (
+            " MBC values are plotted on a second row directly below MIC and interpreted the same way."
+            if has_mbc else ""
+        )
+        low_n_bio_sentence = (
+            " Results resting on a single biological replicate (n_bio=1) are orientational only and "
+            "are flagged as such on the figure; they have not been confirmed by independent biological "
+            "replication."
+            if low_n_bio_m1 else ""
+        )
+
+        captions = f"""--- OPISY RYCIN MIC/MBC (Scientific Captions) ---\n
+Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
+Rycina M1 opisuje aktualnie wybraną w oknie substancję ({sub}); pozostałe obejmują
+wszystkie substancje danego szczepu naraz, tak jak w odpowiednich zakładkach.
+
+=== Rycina M1: Rozkład MIC/MBC ({sub}) ===
+Figure M1. Distribution of biological-replicate MIC{title_suffix} values for {sub} against {bact}.
+Each point represents one biological replicate (technical replicates were first resolved
+to a single value per biological replicate). The diamond marker (◆) indicates the MEDIAN
+across biological replicates - not the arithmetic mean - together with its full range
+(horizontal line). Triangular markers pointing right/left denote censored values (">" or
+"≤" the tested concentration range, i.e. the true endpoint lies beyond what was actually
+tested) and are plotted at their censoring bound, never treated as an exact numeric
+reading. The x-axis is a base-2 (two-fold dilution) logarithmic scale, labelled in the
+original concentration units.{mbc_row_sentence}{low_n_bio_sentence}
+"""
+        text_area.insert("0.0", captions)
+
     def open_plot_settings(self):
         self.settings_win = ctk.CTkToplevel(self)
         self.settings_win.title("Ustawienia Wykresu")
@@ -1055,6 +1118,8 @@ Bar chart summarizing the mean inhibition zone diameters for selected substances
         self.combo_mic_substance.set(substances[0])
         self.combo_mic_substance.pack(side="left", padx=(0, 20))
 
+        ctk.CTkButton(top, text="📝 Generuj Opisy Rycin (MIC/MBC)", fg_color="#555555", hover_color="#333333",
+                      command=self.open_mic_mbc_caption_window).pack(side="left", padx=5)
         ctk.CTkButton(top, text="💾 Eksportuj Excel (MIC/MBC)", fg_color="#1F6AA5",
                       command=self._export_mic_mbc_excel).pack(side="left", padx=5)
         ctk.CTkButton(top, text="📄 Generuj PDF (MIC/MBC)", fg_color="#8B0000", hover_color="#600000",
