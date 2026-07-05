@@ -271,9 +271,95 @@ class HelpDialog(ctk.CTkToplevel):
                        "Program stosuje tzw. 'Natural Sort Order'. Oznacza to, że grupy 'Próbka 2' i 'Próbka 10' "
                        "ułożą się w kolejności 2 -> 10, a nie 10 -> 2 (jak w zwykłym sortowaniu alfabetycznym).")
 
-        self.add_entry("Autokorekta Nazw", 
+        self.add_entry("Autokorekta Nazw",
                        "Program automatycznie usuwa zbędne spacje z nazw w Excelu (np. zamienia 'E. coli ' na 'E. coli'). "
                        "Dzięki temu błędy typu 'spacja na końcu' nie są traktowane jako osobne grupy.")
+
+        # --- SEKCJA 6: MODUŁ MIC/MBC ---
+        self.add_section("6. MODUŁ MIC/MBC")
+
+        self.add_entry("Czym jest MIC i MBC",
+                       "MIC (Minimalne Stężenie Hamujące) to najniższe testowane stężenie substancji, przy "
+                       "którym NIE obserwuje się wzrostu bakterii. MBC (Minimalne Stężenie Bójcze) to "
+                       "najniższe stężenie, przy którym bakterie zostają faktycznie ZABITE (nie tylko "
+                       "zahamowane) - zawsze wyższe lub równe MIC dla tej samej substancji/szczepu.")
+
+        self.add_entry("Jak program wyznacza MIC",
+                       "• Odczyt wizualny (arkusz MIC_wizualny): każda studzienka to 'wzrost' albo 'brak' - "
+                       "wpisane wprost przez osobę wykonującą test.\n"
+                       "• Odczyt OD (arkusz MIC_OD): każda studzienka to zmierzona gęstość optyczna (OD). "
+                       "Program przelicza ją na 'wzrost'/'brak' progiem WZGLĘDNYM: procent wzrostu = "
+                       "(OD studzienki - OD kontroli jałowości) / (OD kontroli wzrostu - OD kontroli "
+                       "jałowości); poniżej progu (domyślnie 10%) uznaje się, że wzrostu nie ma. Próg jest "
+                       "rozsądną, konfigurowalną wartością inżynierską, nie liczbą z konkretnego standardu "
+                       "CLSI/EUCAST.\n"
+                       "MIC to najniższe testowane stężenie, przy którym seria (skanowana od najwyższego "
+                       "stężenia w dół) po raz pierwszy pokazuje 'brak wzrostu' i pozostaje przy tym "
+                       "konsekwentnie aż do najniższego testowanego stężenia; przy zaburzeniu tej kolejności "
+                       "('skip well') wynik jest zwracany zachowawczo, ale oznaczony jako wymagający ręcznej "
+                       "weryfikacji. Wynik jest też uzależniony od tego, czy Przebieg w ogóle przeszedł "
+                       "walidację kontroli (patrz niżej).")
+
+        self.add_entry("Jak program wyznacza MBC",
+                       "Arkusz MBC_posiew: każda studzienka to liczba kolonii (CFU) po posiewie na czyste "
+                       "podłoże. Studzienkę uznaje się za 'zabójczą', gdy redukcja względem inokulum "
+                       "wyjściowego (Inokulum_CFU_t0) wynosi co najmniej 99,9% (3-log10) - to faktycznie "
+                       "standardowa, klinicznie przyjęta definicja działania bakteriobójczego, nie autorski "
+                       "wybór. MBC to najniższe testowane stężenie spełniające ten warunek, wyznaczane tą "
+                       "samą metodą skanowania serii co MIC.")
+
+        self.add_entry("Cenzura (wartości '≤'/'>')",
+                       "Jeśli NAJNIŻSZE testowane stężenie już daje 'brak'/'zabójcze', prawdziwe MIC/MBC "
+                       "może być jeszcze niższe - program zwraca to jako wartość CENZUROWANĄ DOLNIE "
+                       "('≤ najniższe stężenie'), nigdy jako zwykłą liczbę. Analogicznie, jeśli NAJWYŻSZE "
+                       "testowane stężenie wciąż nie daje 'brak'/'zabójcze', MIC/MBC jest cenzurowane "
+                       "GÓRNIE ('> najwyższe stężenie') - prawdziwa wartość może być wyższa niż to, co "
+                       "przetestowano. Cenzura jest przenoszona przez wszystkie kolejne etapy (agregację do "
+                       "powtórzenia biologicznego, medianę grupową, iloraz MBC/MIC) - nigdy nie jest po "
+                       "cichu zamieniana na zwykłą liczbę.")
+
+        self.add_entry("Rola kontroli (arkusz Kontrole)",
+                       "Każdy Przebieg musi mieć dokładnie jeden wpis w arkuszu Kontrole. Dwa warunki "
+                       "ważności przebiegu sprawdzane są NIEZALEŻNIE i identycznie dla obu trybów odczytu "
+                       "MIC (wizualnego i OD) - różni się tylko FORMA samej kontroli:\n"
+                       "• Kontrola wzrostu: potwierdza, że bakteria w ogóle urosła w tym przebiegu (bez "
+                       "substancji). W trybie OD to warunek liczbowy (różnica OD kontroli wzrostu i "
+                       "jałowości musi przekroczyć próg); w trybie wizualnym to po prostu słowo 'wzrost' w "
+                       "tej kolumnie - 'brak' odrzuca cały przebieg jako nieważny.\n"
+                       "• Kontrola jałowości: potwierdza, że samo podłoże (bez inokulum) jest czyste. W "
+                       "trybie OD to próg liczbowy BEZWZGLĘDNY (niezależny od poziomu kontroli wzrostu); w "
+                       "trybie wizualnym - słowo 'brak' ('wzrost' oznacza skażenie i odrzuca przebieg). "
+                       "Wysoka kontrola wzrostu NIE maskuje skażonej kontroli jałowości - oba warunki muszą "
+                       "być spełnione niezależnie, w obu trybach.\n"
+                       "• Inokulum (CFU w chwili t0): punkt odniesienia do liczenia % redukcji CFU dla MBC "
+                       "- używane tylko przy odczycie MBC, nie przy MIC.\n"
+                       "Przebieg BEZ pasującego wpisu w Kontrole (albo z więcej niż jednym wpisem dla tego "
+                       "samego Przebiegu - to błąd danych, nie zgadywane) jest odrzucany z jawnym powodem, "
+                       "nigdy po cichu pomijany.")
+
+        self.add_entry("Iloraz MBC/MIC i klasyfikacja bakteriobójcze/bakteriostatyczne",
+                       "Iloraz liczony jest jako różnica LICZBY dwukrotnych rozcieńczeń (kroków log2) "
+                       "między MBC a MIC, nie jako proste dzielenie stężeń w jednostkach - dzięki temu "
+                       "wartości cenzurowane (≤/>) też dają sensowny, choć czasem tylko częściowo "
+                       "rozstrzygalny wynik. Klasyfikacja jest podawana WYŁĄCZNIE dla serii dwukrotnych "
+                       "rozcieńczeń (współczynnik rozcieńczenia = 2):\n"
+                       "• MBC/MIC ≤ 4 (różnica ≤2 rozcieńczeń) → bakteriobójcze.\n"
+                       "• MBC/MIC ≥ 8 (różnica ≥3 rozcieńczeń) → bakteriostatyczne.\n"
+                       "• Gdy cenzura nie pozwala jednoznacznie rozstrzygnąć, po której stronie progu leży "
+                       "prawdziwa wartość → 'nieoznaczalny'.\n"
+                       "Dla dowolnego innego współczynnika rozcieńczenia MIC, MBC i sam iloraz są liczone i "
+                       "pokazywane jak zawsze, ale etykieta klasyfikacji to jawne 'niedostępna' z podanym "
+                       "powodem - program nigdy nie zgaduje kategorii, dla której nie ma metodologicznych "
+                       "podstaw. Wynik MBC niższy niż MIC dla tej samej pary jest zgłaszany jako BŁĄD "
+                       "SPÓJNOŚCI danych (nie jako 'nieoznaczalny') i wyłączony z klasyfikacji.")
+
+        self.add_entry("Powtórzenia i ostrzeżenie n_bio=1",
+                       "Tak jak w module dyfuzji, wynik z wielu powtórzeń TECHNICZNYCH tego samego "
+                       "powtórzenia biologicznego jest agregowany regułą 'wysokiej mediany' do JEDNEJ "
+                       "wartości na powtórzenie biologiczne, zanim cokolwiek zostanie porównane między "
+                       "grupami. Grupa oparta na tylko jednym powtórzeniu biologicznym (n_bio=1) nie jest "
+                       "odrzucana, ale każdy wynik z niej jest oznaczony jako orientacyjny - ostrzeżenie "
+                       "widoczne wprost na wykresach, w tabeli zbiorczej i w eksporcie, nie tylko w logu.")
 
         # Przycisk zamknięcia
         ctk.CTkButton(self.scroll, text="Zamknij Pomoc", fg_color="#333333", hover_color="#555555", command=self.destroy).pack(pady=30)
