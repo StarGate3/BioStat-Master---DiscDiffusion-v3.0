@@ -102,9 +102,19 @@ class HelpDialog(ctk.CTkToplevel):
                        "Sprawdzamy, czy grupy mają podobny 'rozrzut' wyników.\n"
                        "Jeśli wariancje są różne, testy parametryczne mogą dawać błędne wyniki.")
         
-        self.add_entry("Krok 3: Wybór Testu Głównego", 
+        self.add_entry("Krok 3: Wybór Testu Głównego",
                        "• ANOVA: Wybierana, gdy dane są normalne i mają równą wariancję (największa moc).\n"
                        "• Kruskal-Wallis: Wybierany, gdy założenia ANOVA nie są spełnione (bezpieczniejszy dla danych mikrobiologicznych).")
+
+        self.add_entry("Uwaga praktyczna: dane bez replikacji biologicznej",
+                       "Normalność (Krok 1) sprawdzana jest na powtórzeniach BIOLOGICZNYCH, nie na surowych "
+                       "pomiarach technicznych. Jeśli plik nie rozróżnia powtórzeń biologicznych/technicznych "
+                       "(stary, jednoarkuszowy format - każda grupa ma wtedy dokładnie jedno powtórzenie "
+                       "biologiczne, n_bio=1), testu Shapiro-Wilka nie da się w ogóle wykonać na pojedynczej "
+                       "wartości, więc program w praktyce zawsze przechodzi do testu nieparametrycznego "
+                       "(Kruskal-Wallis) - ANOVA w takim przypadku nigdy nie zostanie wybrana, niezależnie od "
+                       "tego, jak bardzo 'normalne' były surowe dane techniczne. ANOVA staje się osiągalna "
+                       "dopiero przy realnych powtórzeniach biologicznych (kolumna Rep_biologiczna, nowy format).")
 
         # --- SEKCJA 2: KOREKTY POST-HOC ---
         self.add_section("2. KOREKTY POST-HOC (Którą wybrać?)")
