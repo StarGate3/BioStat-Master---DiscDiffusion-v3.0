@@ -139,11 +139,16 @@ class HelpDialog(ctk.CTkToplevel):
                        "• Wysokość słupka: Średnia arytmetyczna strefy zahamowania.\n"
                        "• Antenka (Słupek błędu): Pokazuje zmienność (SD - Odchylenie Standardowe). Im krótsza antenka, tym bardziej powtarzalne były wyniki.")
 
-        self.add_entry("Wykres Pudełkowy (Boxplot)", 
-                       "Bardziej szczegółowy niż słupkowy:\n"
+        self.add_entry("Wykres Pudełkowy (Boxplot)",
+                       "Bardziej szczegółowy niż słupkowy - POD WARUNKIEM, że grupa ma więcej niż jedno "
+                       "powtórzenie biologiczne (n_bio≥2):\n"
                        "• Linia w środku pudełka: Mediana (wartość środkowa).\n"
                        "• Pudełko: Obejmuje 50% środkowych wyników (od 25. do 75. percentyla).\n"
-                       "• Wąsy: Zasięg danych (min-max), z wyłączeniem wartości odstających.")
+                       "• Wąsy: Zasięg danych (min-max), z wyłączeniem wartości odstających.\n"
+                       "Przy n_bio=1 (np. stary, jednoarkuszowy format - patrz 'Minimalna liczebność próby' "
+                       "niżej) grupa ma tylko JEDNĄ wartość biologiczną, więc pudełko degeneruje się do "
+                       "pojedynczego punktu (brak IQR, brak wąsów do pokazania) - to nie błąd wykresu, tylko "
+                       "wierne odwzorowanie braku replikacji biologicznej w danych źródłowych.")
 
         self.add_entry("Wykres 'Lollipop' (Wielkość Efektu)",
                        f"Najważniejszy wykres do oceny 'siły' działania.\n"
