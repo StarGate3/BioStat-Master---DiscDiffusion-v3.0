@@ -150,9 +150,13 @@ class HelpDialog(ctk.CTkToplevel):
                        f"• Oś pozioma (Cohen's d): Mówi, ile 'odchyleń standardowych' dzieli dwie grupy.\n"
                        f"• Kropka ZIELONA (W prawo): Grupa badana jest lepsza/silniejsza.\n"
                        f"• Kropka CZERWONA (W lewo): Grupa badana jest gorsza/słabsza.\n"
-                       f"UWAGA: Wykres prezentuje wyłącznie pary różniące się istotnie statystycznie (p < {ALPHA}), "
-                       f"aby zachować czytelność. Pełne wyniki dla wszystkich par (również nieistotnych) "
-                       f"znajdziesz w raporcie Excel (zakładka 'Post-hoc Details').")
+                       f"UWAGA: Domyślnie wykres pokazuje wyłącznie istotne statystycznie (p < {ALPHA}) pary "
+                       f"WZGLĘDEM GRUPY ODNIESIENIA (spójnie z wykresem głównym), a nie wszystkie istotne pary "
+                       f"między wszystkimi grupami - przy wielu grupach lista wszystkich par bywa zbyt długa, "
+                       f"żeby dało się ją czytelnie podpisać. Pełny widok 'wszystkie pary' włączysz "
+                       f"przełącznikiem 'Wielkość efektu: wszystkie pary' w Opcjach Wykresu. Pełne wyniki dla "
+                       f"wszystkich par (również nieistotnych) niezależnie od tego przełącznika znajdziesz w "
+                       f"raporcie Excel (zakładka 'Post-hoc Details').")
 
         self.add_entry("Mapa Ciepła (Heatmap)", 
                        "Wizualizacja macierzy. Kolory ułatwiają szybkie wyłapanie liderów.\n"
