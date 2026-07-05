@@ -361,6 +361,60 @@ class HelpDialog(ctk.CTkToplevel):
                        "odrzucana, ale każdy wynik z niej jest oznaczony jako orientacyjny - ostrzeżenie "
                        "widoczne wprost na wykresach, w tabeli zbiorczej i w eksporcie, nie tylko w logu.")
 
+        # --- SEKCJA 7: PRZYGOTOWANIE DANYCH / FORMAT PLIKU ---
+        self.add_section("7. PRZYGOTOWANIE DANYCH / FORMAT PLIKU")
+
+        self.add_entry("Stary format nadal działa",
+                       "Jednoarkuszowe pliki z kolumnami Bakteria/Grupa/Srednica_mm (bez żadnych "
+                       "dodatkowych arkuszy) są nadal w pełni obsługiwane - wczytują się i analizują "
+                       "dokładnie tak jak zawsze, bez żadnych zmian ani nowych wymagań. Nie musisz niczego "
+                       "przerabiać w istniejących plikach, jeśli korzystasz tylko z analizy dyfuzji "
+                       "krążkowej.")
+
+        self.add_entry("Nowy, wspólny format wieloarkuszowy",
+                       "Żeby skorzystać z powtórzeń biologicznych/technicznych, typu próbki, albo modułu "
+                       "MIC/MBC, plik Excel może zawierać dodatkowe, ROZPOZNAWANE PO NAZWIE arkusze:\n"
+                       "• Dane_dyfuzja - dane testu dyfuzji krążkowej (odpowiednik starego, pojedynczego "
+                       "arkusza, ale z dodatkowymi kolumnami - patrz niżej).\n"
+                       "• MIC_wizualny - dane MIC z odczytem wizualnym ('wzrost'/'brak').\n"
+                       "• MIC_OD - dane MIC z odczytem gęstości optycznej (liczby OD).\n"
+                       "• MBC_posiew - dane MBC z posiewu (liczby CFU).\n"
+                       "• Kontrole - kontrola wzrostu/jałowości i inokulum dla każdego Przebiegu z MIC_OD/"
+                       "MBC_posiew (WYMAGANY, jeśli używasz któregokolwiek z tych dwóch arkuszy).\n"
+                       "ZASADA: wypełniasz TYLKO te arkusze, które Cię dotyczą. Sama dyfuzja? Wystarczy "
+                       "Dane_dyfuzja. Tylko MIC metodą wizualną? Wystarczą MIC_wizualny + Kontrole. Program "
+                       "sam wykrywa, które arkusze są obecne, i odpowiednio włącza/wyłącza dostępne analizy "
+                       "dla każdego szczepu z osobna (patrz panel 'Analiza MIC/MBC'). Arkusze Instrukcja i "
+                       "Ustawienia, jeśli obecne, są zawsze ignorowane - możesz w nich trzymać własne "
+                       "notatki.")
+
+        self.add_entry("Kluczowe kolumny (Dane_dyfuzja, nowy format)",
+                       "• Substancja / Stezenie / Jednostka - zamiast jednej kolumny 'Grupa' ze stężeniem "
+                       "wpisanym w nazwie, stężenie i jednostka są teraz OSOBNYMI kolumnami (Grupa jest "
+                       "budowana automatycznie z tych trzech, do wyświetlenia).\n"
+                       "• Typ - 'Badana' / 'Kontrola negatywna' / 'Kontrola pozytywna'. Gdy ta kolumna jest "
+                       "obecna, grupa referencyjna do porównań jest wykrywana z niej WPROST (nigdy z nazwy "
+                       "grupy) - jednoznacznie i bez zgadywania.\n"
+                       "• Rep_biologiczna / Rep_techniczna - numer powtórzenia biologicznego i "
+                       "technicznego. Bez tych kolumn (stary format) każda grupa jest traktowana jako JEDNO "
+                       "powtórzenie biologiczne (n_bio=1), a wszystkie jej wiersze - jako powtórzenia "
+                       "techniczne tego jednego powtórzenia; to bezpośrednio wpływa na to, co pokazują "
+                       "słupki błędu i czy osiągalna jest ANOVA (patrz sekcje 1 i 3 wyżej).\n"
+                       "Każda z tych kolumn jest wykrywana NIEZALEŻNIE - plik może mieć część z nich, a nie "
+                       "wszystkie (np. Typ bez Rep_biologiczna).")
+
+        self.add_entry("Kluczowe kolumny (MIC_wizualny / MIC_OD / MBC_posiew)",
+                       "• Przebieg - identyfikator łączący wiersz z jego kontrolami w arkuszu Kontrole. "
+                       "UWAGA: to identyfikator GLOBALNY dla całego pliku, nie osobny dla każdego arkusza - "
+                       "jeśli MIC i MBC pochodzą z tego samego fizycznego przebiegu, powinny mieć TEN SAM "
+                       "Przebieg (żeby dzielić te same kontrole); niepowiązane przebiegi muszą mieć różne "
+                       "wartości.\n"
+                       "• Stez_S1 / Wsp_rozc - stężenie w pierwszej studzience i współczynnik rozcieńczenia "
+                       "między kolejnymi studzienkami (np. Wsp_rozc=2 dla klasycznej serii dwukrotnej).\n"
+                       "• S1, S2, S3... - kolejne studzienki serii rozcieńczeń (wartość zależna od arkusza: "
+                       "'wzrost'/'brak' w MIC_wizualny, liczba OD w MIC_OD, liczba CFU w MBC_posiew).\n"
+                       "• Rep_biologiczna / Rep_techniczna - jak wyżej.")
+
         # Przycisk zamknięcia
         ctk.CTkButton(self.scroll, text="Zamknij Pomoc", fg_color="#333333", hover_color="#555555", command=self.destroy).pack(pady=30)
 
