@@ -15,7 +15,7 @@ from logic import StatsEngine
 from plotting import Plotter
 import mic_logic
 import mic_plotting
-from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI, REF_PLACEHOLDER
+from config import DISC_DIAMETER_MM, ALPHA, COL_GROUP, COL_MEASUREMENT, EXPORT_DPI, REF_PLACEHOLDER, MIC_MEANINGFUL_DILUTION_DIFF
 
 ctk.set_appearance_mode("System")
 ctk.set_default_color_theme("blue")
@@ -426,17 +426,50 @@ class App(ctk.CTk):
 
         bact = self.combo_bact.get()
         ref_group = self.combo_ref.get()
-        post_hoc = self.combo_method.get()
-        if post_hoc == "None": post_hoc = "no correction"
-        elif post_hoc == "fdr_bh": post_hoc = "Benjamini-Hochberg (FDR) correction"
-        elif post_hoc == "holm": post_hoc = "Holm-Bonferroni correction"
-        else: post_hoc = "Bonferroni correction"
 
-        test_name = "Statistical test" 
+        # Audyt (Znalezisko 1): "negative control" bylo bezwarunkowe, mimo ze
+        # combo_ref pozwala wybrac DOWOLNA grupe danego szczepu (gui.py,
+        # on_bacteria_change: self.combo_ref.configure(values=grupy_bact)) -
+        # np. swiadomie kontrole dodatnia jako referencje. utils.select_
+        # reference_group to ten sam, juz istniejacy mechanizm autodetekcji
+        # kontroli negatywnej uzywany przy zmianie szczepu - wywolujemy go
+        # ponownie tu i porownujemy z FAKTYCZNIE wybrana wartoscia, zamiast
+        # zakladac, ze cokolwiek jest w combo_ref musi byc kontrola negatywna.
+        is_negative_control = False
+        if self.df is not None and bact not in ("", "..."):
+            df_bact_ref = self.df[self.df[self.col_bact_name] == bact]
+            auto_neg_group, ref_ambiguous = utils.select_reference_group(df_bact_ref)
+            is_negative_control = (not ref_ambiguous) and (ref_group == auto_neg_group)
+        ref_desc = f"negative control ({ref_group})" if is_negative_control else f"reference group ({ref_group})"
+
+        used_correction_raw = self.combo_method.get()
+        if used_correction_raw == "None": correction_desc = "no correction"
+        elif used_correction_raw == "fdr_bh": correction_desc = "Benjamini-Hochberg (FDR) correction"
+        elif used_correction_raw == "holm": correction_desc = "Holm-Bonferroni correction"
+        else: correction_desc = "Bonferroni correction"
+
+        # Audyt (Znalezisko 2): nazwa testu post-hoc musi odpowiadać temu, co
+        # logic.py FAKTYCZNIE wykonuje, nie ślepo temu, co wybrano w
+        # combo_method - gałąź ANOVA w run_statistics ZAWSZE używa Tukey's
+        # HSD (pairwise_tukeyhsd), niezależnie od wyboru w tym dropdownie;
+        # `method`/korekta z combo_method dotyczy WYŁĄCZNIE gałęzi
+        # Kruskal-Wallis (posthoc_dunn). Ten sam podział testu ANOVA/Kruskal
+        # jest już poprawnie zaimplementowany w dialogs.py (HelpDialog,
+        # sekcja "Automatyczny opis") - tu używamy tego samego źródła prawdy
+        # (export_stats_main[0]["Test"]), żeby nie rozjeżdżać się z nim.
+        test_name = "Statistical test"
+        posthoc_clause = ", followed by an appropriate post-hoc test"
+        posthoc_matrix_desc = "an appropriate post-hoc"
         if self.export_stats_main:
             used_test = self.export_stats_main[0].get("Test", "")
-            if "ANOVA" in used_test: test_name = "One-way ANOVA"
-            elif "Kruskal" in used_test: test_name = "Kruskal-Wallis test"
+            if "ANOVA" in used_test:
+                test_name = "One-way ANOVA"
+                posthoc_clause = ", followed by Tukey's HSD post-hoc test"
+                posthoc_matrix_desc = "Tukey's HSD"
+            elif "Kruskal" in used_test:
+                test_name = "Kruskal-Wallis test"
+                posthoc_clause = f", followed by Dunn's post-hoc test with {correction_desc}"
+                posthoc_matrix_desc = f"Dunn's post-hoc test with {correction_desc}"
 
         err_conf = self.plot_config["error_bar"]
         if "SD" in err_conf: err_desc = "standard deviation (SD)"
@@ -444,33 +477,84 @@ class App(ctk.CTk):
         else: err_desc = "95% confidence interval (95% CI)"
 
         plot_type = self.plot_config["plot_type"]
-        if "Barplot" in plot_type: 
+        if "Barplot" in plot_type:
             viz_desc = "Bars represent the mean inhibition zone diameter"
-        else: 
+        else:
             viz_desc = "Boxplots represent the median and interquartile range (IQR), with whiskers extending to the minimum and maximum values"
+
+        # Audyt (Znalezisko 4): "error bars = SD/SEM of independent replicates"
+        # jest falszywe, gdy wiekszosc/wszystkie grupy maja n_bio=1 (np. caly
+        # stary, jednoarkuszowy format - aggregate_technical_replicates
+        # celowo kolapsuje kazda taka grupe do JEDNEGO wiersza, wiec SD/SEM
+        # miedzy powtorzeniami BIOLOGICZNYMI jest tam zawsze 0/NaN, mimo ze
+        # wykres pokazuje surowe powtorzenia techniczne). self.stats_summary
+        # (utils.build_group_summary, juz policzone przez run_analysis na
+        # TYCH SAMYCH danych co ten wykres) ma kolumne n_bio per grupe - to
+        # ten sam format-poziomu sygnal co self.low_n_bio_warning, tyle ze
+        # tu potrzebujemy UDZIALU grup z n_bio<2, nie tylko "czy jakakolwiek".
+        replicate_clause = f"Error bars indicate the {err_desc} between independent biological replicates."
+        replicate_clause_cross = "Error bars represent standard deviation between independent biological replicates."
+        if self.stats_summary is not None and not self.stats_summary.empty:
+            frac_low_n_bio = (self.stats_summary['n_bio'] < 2).mean()
+            if frac_low_n_bio > 0.5:
+                replicate_clause = (
+                    "Each group is represented by a single biological replicate "
+                    "(n_bio=1; technical replicates were averaged into this one value "
+                    "per group), so the plotted variability does not reflect independent "
+                    "biological replication."
+                )
+                # Rycina 6 (Porownanie Szczepow) uzywa tego samego mechanizmu
+                # agregacji (utils.aggregate_technical_replicates) na CALYM
+                # pliku (gui.py: df_bio_all) - a "stary/nowy format" jest
+                # cecha calego pliku, nie pojedynczej grupy, wiec ten sam
+                # sygnal n_bio jest zasadnym przyblizeniem tez dla niej.
+                replicate_clause_cross = (
+                    "Each group/strain is represented by a single biological replicate "
+                    "(n_bio=1; technical replicates were averaged into this one value), "
+                    "so error bars are not shown/not meaningful here."
+                )
+
+        # Audyt (Znalezisko 3): draw_effect_plot zwraca None (pusta zakladka
+        # "Wielkosc Efektu"), gdy nie ma zadnej pary z policzalnym (nie-NaN)
+        # Cohen's d i istotna statystycznie - m.in. zawsze tak jest, gdy
+        # KAZDA grupa ma n_bio<2 (Cohen's d wymaga n>=2 w obu grupach, patrz
+        # utils.calculate_cohens_d), czyli dla kazdego pliku w starym
+        # formacie (potwierdzone empirycznie na dane_disk.xlsx). Podpis nie
+        # moze opisywac ryciny, ktorej nie ma w zakladce.
+        if self.figures.get('effect') is not None:
+            rycina3_block = (
+                "=== Rycina 3: Mapa Wielkości Efektu (Effect Size) ===\n"
+                "Figure 3. Lollipop chart displaying the standardized effect size (Cohen's d) for statistically significant pairwise comparisons.\n"
+                "Dots represent the magnitude of the difference between groups. Green dots indicate a positive difference (Group 1 > Group 2), while red dots indicate a negative difference."
+            )
+        else:
+            rycina3_block = (
+                "=== Rycina 3: Mapa Wielkości Efektu (Effect Size) ===\n"
+                "Nie wygenerowano - dla bieżących danych brak jest jakiejkolwiek pary grup z policzalnym Cohen's d "
+                "(wymaga co najmniej 2 powtórzeń biologicznych w OBU porównywanych grupach) i istotnej statystycznie "
+                "zarazem. Nie kopiuj podpisu dla tej ryciny do manuskryptu - w bieżącej analizie ona nie istnieje."
+            )
 
         captions = f"""--- OPISY RYCIN (Scientific Captions) ---\n
 Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
 
 === Rycina 1: Wykres Główny ===
 Figure 1. Antibacterial activity of tested samples against {bact}.
-{viz_desc}. Error bars indicate the {err_desc} of independent replicates.
-Statistical significance was determined using {test_name} followed by {post_hoc} for multiple comparisons.
-Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the negative control ({ref_group}).
+{viz_desc}. {replicate_clause}
+Statistical significance was determined using {test_name}{posthoc_clause} for multiple comparisons.
+Asterisks (*) indicate a statistically significant difference (p < {ALPHA}) compared to the {ref_desc}.
 Red dashed line represents the diameter of the disk ({DISC_DIAMETER_MM:g} mm).
 
 === Rycina 2: Mapa Ciepła ===
 Figure 2. Heatmap visualizing the magnitude of growth inhibition zones (mm) for {bact} treated with various substances.
 Color intensity corresponds to the mean diameter of the inhibition zone. Warmer colors indicate higher antibacterial activity.
 
-=== Rycina 3: Mapa Wielkości Efektu (Effect Size) ===
-Figure 3. Lollipop chart displaying the standardized effect size (Cohen's d) for statistically significant pairwise comparisons.
-Dots represent the magnitude of the difference between groups. Green dots indicate a positive difference (Group 1 > Group 2), while red dots indicate a negative difference.
+{rycina3_block}
 
 === Rycina 4: Mapa Istotności (P-value Matrix) ===
 Figure 4. Pairwise comparison significance matrix (P-values).
 The heatmap displays adjusted p-values for all pairwise comparisons. Blue shades indicate statistical significance (p < {ALPHA}), while red/white shades indicate non-significant differences.
-P-values were adjusted for multiple comparisons using the {post_hoc} method.
+P-values were adjusted for multiple comparisons using {posthoc_matrix_desc}.
 
 === Rycina 5: Trend Dawka-Odpowiedź ===
 Figure 5. Dose-response relationship of antibacterial activity.
@@ -480,7 +564,125 @@ Shaded areas indicate the confidence interval. Spearman correlation coefficients
 === Rycina 6: Porównanie Szczepów ===
 Figure 6. Cross-species comparison of antibacterial activity.
 Bar chart summarizing the mean inhibition zone diameters for selected substances across different bacterial strains.
-Error bars represent standard deviation. This overview highlights the differential susceptibility of tested pathogens to the antimicrobial agents.
+{replicate_clause_cross} This overview highlights the differential susceptibility of tested pathogens to the antimicrobial agents.
+"""
+        text_area.insert("0.0", captions)
+
+    def open_mic_mbc_caption_window(self):
+        """
+        Generator opisów rycin do publikacji dla modułu MIC/MBC - odpowiednik
+        open_caption_window, ale dla czterech wyjść okna MIC/MBC (Rozkład,
+        Pary MIC<->MBC, Porównanie substancji, Tabela zbiorcza). Rycina M1
+        (Rozkład) jest opisywana DLA AKTUALNIE WYBRANEJ substancji w
+        combo_mic_substance - tak jak sam wykres w zakładce "Rozkład
+        MIC/MBC" - reszta (M2/M3/Tabela) obejmuje wszystkie substancje
+        naraz, dokładnie tak jak te wykresy/tabela są budowane.
+        """
+        win = ctk.CTkToplevel(self)
+        win.title("Generator Opisów do Publikacji (MIC/MBC)")
+        win.geometry("700x600")
+        self._bring_window_to_front(win)
+
+        text_area = ctk.CTkTextbox(win, font=("Arial", 12), wrap="word")
+        text_area.pack(fill="both", expand=True, padx=10, pady=10)
+
+        state = self._mic_mbc_state
+        bact = state["bact"]
+        sub = self.combo_mic_substance.get()
+        key = (bact, sub)
+
+        mic_bio = state["mic_bact"].get(key, {}).get("bio_results", [])
+        mbc_bio = state["mbc_bact"].get(key, {}).get("bio_results", [])
+        has_mbc = bool(mbc_bio)
+
+        # Rycina M3 (Znalezisko 2 z Fazy 1, ten sam wzorzec): nazwa korekty
+        # musi odpowiadać temu, co compare_mic_groups FAKTYCZNIE dostaje -
+        # self._mic_mbc_method() zamienia "None" (dyfuzja: brak korekty) na
+        # "holm", bo porównania MIC/MBC (Dunn's test) nie mają opcji braku
+        # korekty - używamy WYNIKU tej metody, nie surowego combo_method.get().
+        correction_map = {
+            "holm": "Holm-Bonferroni correction",
+            "fdr_bh": "Benjamini-Hochberg (FDR) correction",
+            "bonferroni": "Bonferroni correction",
+        }
+        mic_mbc_correction = correction_map.get(self._mic_mbc_method(), "Holm-Bonferroni correction")
+
+        mic_desc = mic_logic.describe_mic_group(mic_bio) if mic_bio else None
+        mbc_desc = mic_logic.describe_mic_group(mbc_bio) if mbc_bio else None
+        n_bio_mic = mic_desc["n_bio"] if mic_desc else 0
+        n_bio_mbc = mbc_desc["n_bio"] if mbc_desc else 0
+        low_n_bio_m1 = (0 < n_bio_mic < 2) or (has_mbc and 0 < n_bio_mbc < 2)
+
+        title_suffix = " (and MBC)" if has_mbc else ""
+        mbc_row_sentence = (
+            " MBC values are plotted on a second row directly below MIC and interpreted the same way."
+            if has_mbc else ""
+        )
+        low_n_bio_sentence = (
+            " Results resting on a single biological replicate (n_bio=1) are orientational only and "
+            "are flagged as such on the figure; they have not been confirmed by independent biological "
+            "replication."
+            if low_n_bio_m1 else ""
+        )
+
+        captions = f"""--- OPISY RYCIN MIC/MBC (Scientific Captions) ---\n
+Możesz skopiować poniższe opisy bezpośrednio do manuskryptu (Word/LaTeX).
+Rycina M1 opisuje aktualnie wybraną w oknie substancję ({sub}); pozostałe obejmują
+wszystkie substancje danego szczepu naraz, tak jak w odpowiednich zakładkach.
+
+=== Rycina M1: Rozkład MIC/MBC ({sub}) ===
+Figure M1. Distribution of biological-replicate MIC{title_suffix} values for {sub} against {bact}.
+Each point represents one biological replicate (technical replicates were first resolved
+to a single value per biological replicate). The diamond marker (◆) indicates the MEDIAN
+across biological replicates - not the arithmetic mean - together with its full range
+(horizontal line). Triangular markers pointing right/left denote censored values (">" or
+"≤" the tested concentration range, i.e. the true endpoint lies beyond what was actually
+tested) and are plotted at their censoring bound, never treated as an exact numeric
+reading. The x-axis is a base-2 (two-fold dilution) logarithmic scale, labelled in the
+original concentration units.{mbc_row_sentence}{low_n_bio_sentence}
+
+=== Rycina M2: Pary MIC↔MBC ===
+Figure M2. MIC-to-MBC interval for each tested substance against {bact}, plotted on the
+same base-2 logarithmic concentration scale.
+For each substance, the median MIC (blue) and median MBC (dark red) are connected by a
+line spanning the dilution interval between them. A dashed open arrow indicates a
+right-censored MBC (no killing observed within the tested concentration range, so the
+true MBC may lie above the highest concentration tested). Colour encodes the
+classification: bactericidal (green) when the MBC/MIC ratio is ≤4 (≤2 two-fold dilution
+steps between MIC and MBC), bacteriostatic (orange) when the ratio is ≥8 (≥3 dilution
+steps), or undetermined (grey) when censoring makes it impossible to tell on which side
+of this boundary the true value falls - reference markers at 4× and 8× the MIC mark
+these two boundaries directly on the plot. Classification is reported only when the
+underlying dilution series is two-fold (Wsp_rozc=2); for any other dilution factor the
+MIC/MBC values and their ratio are still shown, but labelled "unavailable" instead of
+assigned a category. Pairs marked with a red "X" indicate an internal consistency error
+(MBC below MIC) and are excluded from classification rather than silently resolved.
+
+=== Rycina M3: Porównanie MIC/MBC między substancjami ===
+Figure M3a. Comparison of MIC values across tested substances against {bact}.
+Figure M3b. Comparison of MBC values across tested substances against {bact}.
+Each substance/group is represented by the median of its biological-replicate values on
+the dilution-step (log2) scale. Group comparisons were performed on these dilution-step
+values using the Kruskal-Wallis test (Mann-Whitney U for two groups) with Dunn's
+post-hoc test and {mic_mbc_correction} for multiple comparisons. A difference between two
+medians is additionally flagged as "meaningful" only when it spans at least
+{MIC_MEANINGFUL_DILUTION_DIFF:g} two-fold dilution steps, independent of statistical
+significance, so that a difference too small to be methodologically distinguishable at
+this resolution is not over-interpreted as biologically relevant. Where a group's
+significance test could not be computed (e.g. more than half its values were censored,
+or fewer than two groups had usable data), this is stated explicitly instead of the
+comparison being silently omitted; groups resting on a single biological replicate
+(n_bio=1) are flagged as orientational.
+
+=== Tabela zbiorcza MIC/MBC ===
+Table M1. Summary of MIC, MBC, and MBC/MIC ratio for each tested substance against
+{bact}, one row per substance. MIC/MBC values are the median across biological
+replicates (n_bio per substance/endpoint given in the corresponding column); censored
+values are shown with their ≤/> prefix, never as a bare number. The bactericidal/
+bacteriostatic classification is reported only for two-fold dilution series and only
+when the MIC-MBC interval unambiguously falls on one side of the 4×/8× (d=2/d=3)
+boundary under censoring; otherwise "unavailable"/"undetermined" is stated explicitly,
+together with the reason, in the Uwagi/warnings column.
 """
         text_area.insert("0.0", captions)
 
@@ -971,6 +1173,8 @@ Error bars represent standard deviation. This overview highlights the differenti
         self.combo_mic_substance.set(substances[0])
         self.combo_mic_substance.pack(side="left", padx=(0, 20))
 
+        ctk.CTkButton(top, text="📝 Generuj Opisy Rycin (MIC/MBC)", fg_color="#555555", hover_color="#333333",
+                      command=self.open_mic_mbc_caption_window).pack(side="left", padx=5)
         ctk.CTkButton(top, text="💾 Eksportuj Excel (MIC/MBC)", fg_color="#1F6AA5",
                       command=self._export_mic_mbc_excel).pack(side="left", padx=5)
         ctk.CTkButton(top, text="📄 Generuj PDF (MIC/MBC)", fg_color="#8B0000", hover_color="#600000",

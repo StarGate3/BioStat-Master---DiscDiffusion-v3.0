@@ -102,9 +102,19 @@ class HelpDialog(ctk.CTkToplevel):
                        "Sprawdzamy, czy grupy mają podobny 'rozrzut' wyników.\n"
                        "Jeśli wariancje są różne, testy parametryczne mogą dawać błędne wyniki.")
         
-        self.add_entry("Krok 3: Wybór Testu Głównego", 
+        self.add_entry("Krok 3: Wybór Testu Głównego",
                        "• ANOVA: Wybierana, gdy dane są normalne i mają równą wariancję (największa moc).\n"
                        "• Kruskal-Wallis: Wybierany, gdy założenia ANOVA nie są spełnione (bezpieczniejszy dla danych mikrobiologicznych).")
+
+        self.add_entry("Uwaga praktyczna: dane bez replikacji biologicznej",
+                       "Normalność (Krok 1) sprawdzana jest na powtórzeniach BIOLOGICZNYCH, nie na surowych "
+                       "pomiarach technicznych. Jeśli plik nie rozróżnia powtórzeń biologicznych/technicznych "
+                       "(stary, jednoarkuszowy format - każda grupa ma wtedy dokładnie jedno powtórzenie "
+                       "biologiczne, n_bio=1), testu Shapiro-Wilka nie da się w ogóle wykonać na pojedynczej "
+                       "wartości, więc program w praktyce zawsze przechodzi do testu nieparametrycznego "
+                       "(Kruskal-Wallis) - ANOVA w takim przypadku nigdy nie zostanie wybrana, niezależnie od "
+                       "tego, jak bardzo 'normalne' były surowe dane techniczne. ANOVA staje się osiągalna "
+                       "dopiero przy realnych powtórzeniach biologicznych (kolumna Rep_biologiczna, nowy format).")
 
         # --- SEKCJA 2: KOREKTY POST-HOC ---
         self.add_section("2. KOREKTY POST-HOC (Którą wybrać?)")
@@ -118,9 +128,17 @@ class HelpDialog(ctk.CTkToplevel):
                        f"Bardzo konserwatywna. Bardzo trudno uzyskać p < {ALPHA}. "
                        f"Stosuj tylko, gdy musisz mieć absolutną pewność i chcesz uniknąć fałszywych alarmów za wszelką cenę.")
         
-        self.add_entry("FDR (Benjamini-Hochberg)", 
+        self.add_entry("FDR (Benjamini-Hochberg)",
                        "Najmniej rygorystyczna. Dopuszcza pewien odsetek fałszywych odkryć. "
                        "Idealna do 'screeningu' (przesiewu) setek substancji, gdy nie chcesz przegapić niczego potencjalnie ciekawego.")
+
+        self.add_entry("Brak korekty (None)",
+                       "Surowe p-value z każdego porównania, bez żadnej poprawki na wielokrotne testowanie. "
+                       "RYZYKO: przy wielu porównaniach naraz mocno zawyża odsetek fałszywie 'istotnych' wyników "
+                       "(Błąd I rodzaju) - to dokładnie to, przed czym mają chronić korekty opisane wyżej. "
+                       "Sensowne najwyżej przy pojedynczym, z góry zaplanowanym porównaniu (np. tylko badana "
+                       "substancja vs kontrola, bez żadnych innych par) - nie do rutynowego używania przy "
+                       "porównaniu wielu grup.")
 
         # --- SEKCJA 3: INTERPRETACJA WYKRESÓW ---
         self.add_section("3. ANATOMIA WYKRESÓW")
@@ -129,20 +147,29 @@ class HelpDialog(ctk.CTkToplevel):
                        "• Wysokość słupka: Średnia arytmetyczna strefy zahamowania.\n"
                        "• Antenka (Słupek błędu): Pokazuje zmienność (SD - Odchylenie Standardowe). Im krótsza antenka, tym bardziej powtarzalne były wyniki.")
 
-        self.add_entry("Wykres Pudełkowy (Boxplot)", 
-                       "Bardziej szczegółowy niż słupkowy:\n"
+        self.add_entry("Wykres Pudełkowy (Boxplot)",
+                       "Bardziej szczegółowy niż słupkowy - POD WARUNKIEM, że grupa ma więcej niż jedno "
+                       "powtórzenie biologiczne (n_bio≥2):\n"
                        "• Linia w środku pudełka: Mediana (wartość środkowa).\n"
                        "• Pudełko: Obejmuje 50% środkowych wyników (od 25. do 75. percentyla).\n"
-                       "• Wąsy: Zasięg danych (min-max), z wyłączeniem wartości odstających.")
+                       "• Wąsy: Zasięg danych (min-max), z wyłączeniem wartości odstających.\n"
+                       "Przy n_bio=1 (np. stary, jednoarkuszowy format - patrz 'Minimalna liczebność próby' "
+                       "niżej) grupa ma tylko JEDNĄ wartość biologiczną, więc pudełko degeneruje się do "
+                       "pojedynczego punktu (brak IQR, brak wąsów do pokazania) - to nie błąd wykresu, tylko "
+                       "wierne odwzorowanie braku replikacji biologicznej w danych źródłowych.")
 
         self.add_entry("Wykres 'Lollipop' (Wielkość Efektu)",
                        f"Najważniejszy wykres do oceny 'siły' działania.\n"
                        f"• Oś pozioma (Cohen's d): Mówi, ile 'odchyleń standardowych' dzieli dwie grupy.\n"
                        f"• Kropka ZIELONA (W prawo): Grupa badana jest lepsza/silniejsza.\n"
                        f"• Kropka CZERWONA (W lewo): Grupa badana jest gorsza/słabsza.\n"
-                       f"UWAGA: Wykres prezentuje wyłącznie pary różniące się istotnie statystycznie (p < {ALPHA}), "
-                       f"aby zachować czytelność. Pełne wyniki dla wszystkich par (również nieistotnych) "
-                       f"znajdziesz w raporcie Excel (zakładka 'Post-hoc Details').")
+                       f"UWAGA: Domyślnie wykres pokazuje wyłącznie istotne statystycznie (p < {ALPHA}) pary "
+                       f"WZGLĘDEM GRUPY ODNIESIENIA (spójnie z wykresem głównym), a nie wszystkie istotne pary "
+                       f"między wszystkimi grupami - przy wielu grupach lista wszystkich par bywa zbyt długa, "
+                       f"żeby dało się ją czytelnie podpisać. Pełny widok 'wszystkie pary' włączysz "
+                       f"przełącznikiem 'Wielkość efektu: wszystkie pary' w Opcjach Wykresu. Pełne wyniki dla "
+                       f"wszystkich par (również nieistotnych) niezależnie od tego przełącznika znajdziesz w "
+                       f"raporcie Excel (zakładka 'Post-hoc (Details)').")
 
         self.add_entry("Mapa Ciepła (Heatmap)", 
                        "Wizualizacja macierzy. Kolory ułatwiają szybkie wyłapanie liderów.\n"
@@ -233,17 +260,160 @@ class HelpDialog(ctk.CTkToplevel):
                        "Test Dixona uruchamia się automatycznie, ale tylko dla prób o liczebności N = 3 do 10. "
                        "Dla bardzo dużych prób (N > 10) test nie jest wykonywany, aby uniknąć błędów statystycznych.")
 
-        self.add_entry("Minimalna liczebność próby", 
-                       "Grupy posiadające mniej niż 2 wyniki (N < 2) są automatycznie pomijane w analizie statystycznej, "
-                       "ponieważ niemożliwe jest obliczenie dla nich odchylenia standardowego.")
+        self.add_entry("Minimalna liczebność próby",
+                       "Z analizy statystycznej pomijane są wyłącznie grupy CAŁKOWICIE puste (N=0). "
+                       "Grupa z jednym wynikiem (N=1 - np. brak replikacji biologicznej) NIE jest pomijana: "
+                       "test wciąż się wykonuje, ale taki wynik jest oznaczony jako orientacyjny, z jawnym "
+                       "ostrzeżeniem 'brak replikacji biologicznej' (widocznym m.in. na wykresie głównym) - "
+                       "bo dla N=1 nie da się policzyć odchylenia standardowego ani ocenić normalności rozkładu.")
 
         self.add_entry("Inteligentne Sortowanie", 
                        "Program stosuje tzw. 'Natural Sort Order'. Oznacza to, że grupy 'Próbka 2' i 'Próbka 10' "
                        "ułożą się w kolejności 2 -> 10, a nie 10 -> 2 (jak w zwykłym sortowaniu alfabetycznym).")
 
-        self.add_entry("Autokorekta Nazw", 
+        self.add_entry("Autokorekta Nazw",
                        "Program automatycznie usuwa zbędne spacje z nazw w Excelu (np. zamienia 'E. coli ' na 'E. coli'). "
                        "Dzięki temu błędy typu 'spacja na końcu' nie są traktowane jako osobne grupy.")
+
+        # --- SEKCJA 6: MODUŁ MIC/MBC ---
+        self.add_section("6. MODUŁ MIC/MBC")
+
+        self.add_entry("Czym jest MIC i MBC",
+                       "MIC (Minimalne Stężenie Hamujące) to najniższe testowane stężenie substancji, przy "
+                       "którym NIE obserwuje się wzrostu bakterii. MBC (Minimalne Stężenie Bójcze) to "
+                       "najniższe stężenie, przy którym bakterie zostają faktycznie ZABITE (nie tylko "
+                       "zahamowane) - zawsze wyższe lub równe MIC dla tej samej substancji/szczepu.")
+
+        self.add_entry("Jak program wyznacza MIC",
+                       "• Odczyt wizualny (arkusz MIC_wizualny): każda studzienka to 'wzrost' albo 'brak' - "
+                       "wpisane wprost przez osobę wykonującą test.\n"
+                       "• Odczyt OD (arkusz MIC_OD): każda studzienka to zmierzona gęstość optyczna (OD). "
+                       "Program przelicza ją na 'wzrost'/'brak' progiem WZGLĘDNYM: procent wzrostu = "
+                       "(OD studzienki - OD kontroli jałowości) / (OD kontroli wzrostu - OD kontroli "
+                       "jałowości); poniżej progu (domyślnie 10%) uznaje się, że wzrostu nie ma. Próg jest "
+                       "rozsądną, konfigurowalną wartością inżynierską, nie liczbą z konkretnego standardu "
+                       "CLSI/EUCAST.\n"
+                       "MIC to najniższe testowane stężenie, przy którym seria (skanowana od najwyższego "
+                       "stężenia w dół) po raz pierwszy pokazuje 'brak wzrostu' i pozostaje przy tym "
+                       "konsekwentnie aż do najniższego testowanego stężenia; przy zaburzeniu tej kolejności "
+                       "('skip well') wynik jest zwracany zachowawczo, ale oznaczony jako wymagający ręcznej "
+                       "weryfikacji. Wynik jest też uzależniony od tego, czy Przebieg w ogóle przeszedł "
+                       "walidację kontroli (patrz niżej).")
+
+        self.add_entry("Jak program wyznacza MBC",
+                       "Arkusz MBC_posiew: każda studzienka to liczba kolonii (CFU) po posiewie na czyste "
+                       "podłoże. Studzienkę uznaje się za 'zabójczą', gdy redukcja względem inokulum "
+                       "wyjściowego (Inokulum_CFU_t0) wynosi co najmniej 99,9% (3-log10) - to faktycznie "
+                       "standardowa, klinicznie przyjęta definicja działania bakteriobójczego, nie autorski "
+                       "wybór. MBC to najniższe testowane stężenie spełniające ten warunek, wyznaczane tą "
+                       "samą metodą skanowania serii co MIC.")
+
+        self.add_entry("Cenzura (wartości '≤'/'>')",
+                       "Jeśli NAJNIŻSZE testowane stężenie już daje 'brak'/'zabójcze', prawdziwe MIC/MBC "
+                       "może być jeszcze niższe - program zwraca to jako wartość CENZUROWANĄ DOLNIE "
+                       "('≤ najniższe stężenie'), nigdy jako zwykłą liczbę. Analogicznie, jeśli NAJWYŻSZE "
+                       "testowane stężenie wciąż nie daje 'brak'/'zabójcze', MIC/MBC jest cenzurowane "
+                       "GÓRNIE ('> najwyższe stężenie') - prawdziwa wartość może być wyższa niż to, co "
+                       "przetestowano. Cenzura jest przenoszona przez wszystkie kolejne etapy (agregację do "
+                       "powtórzenia biologicznego, medianę grupową, iloraz MBC/MIC) - nigdy nie jest po "
+                       "cichu zamieniana na zwykłą liczbę.")
+
+        self.add_entry("Rola kontroli (arkusz Kontrole)",
+                       "Każdy Przebieg musi mieć dokładnie jeden wpis w arkuszu Kontrole. Dwa warunki "
+                       "ważności przebiegu sprawdzane są NIEZALEŻNIE i identycznie dla obu trybów odczytu "
+                       "MIC (wizualnego i OD) - różni się tylko FORMA samej kontroli:\n"
+                       "• Kontrola wzrostu: potwierdza, że bakteria w ogóle urosła w tym przebiegu (bez "
+                       "substancji). W trybie OD to warunek liczbowy (różnica OD kontroli wzrostu i "
+                       "jałowości musi przekroczyć próg); w trybie wizualnym to po prostu słowo 'wzrost' w "
+                       "tej kolumnie - 'brak' odrzuca cały przebieg jako nieważny.\n"
+                       "• Kontrola jałowości: potwierdza, że samo podłoże (bez inokulum) jest czyste. W "
+                       "trybie OD to próg liczbowy BEZWZGLĘDNY (niezależny od poziomu kontroli wzrostu); w "
+                       "trybie wizualnym - słowo 'brak' ('wzrost' oznacza skażenie i odrzuca przebieg). "
+                       "Wysoka kontrola wzrostu NIE maskuje skażonej kontroli jałowości - oba warunki muszą "
+                       "być spełnione niezależnie, w obu trybach.\n"
+                       "• Inokulum (CFU w chwili t0): punkt odniesienia do liczenia % redukcji CFU dla MBC "
+                       "- używane tylko przy odczycie MBC, nie przy MIC.\n"
+                       "Przebieg BEZ pasującego wpisu w Kontrole (albo z więcej niż jednym wpisem dla tego "
+                       "samego Przebiegu - to błąd danych, nie zgadywane) jest odrzucany z jawnym powodem, "
+                       "nigdy po cichu pomijany.")
+
+        self.add_entry("Iloraz MBC/MIC i klasyfikacja bakteriobójcze/bakteriostatyczne",
+                       "Iloraz liczony jest jako różnica LICZBY dwukrotnych rozcieńczeń (kroków log2) "
+                       "między MBC a MIC, nie jako proste dzielenie stężeń w jednostkach - dzięki temu "
+                       "wartości cenzurowane (≤/>) też dają sensowny, choć czasem tylko częściowo "
+                       "rozstrzygalny wynik. Klasyfikacja jest podawana WYŁĄCZNIE dla serii dwukrotnych "
+                       "rozcieńczeń (współczynnik rozcieńczenia = 2):\n"
+                       "• MBC/MIC ≤ 4 (różnica ≤2 rozcieńczeń) → bakteriobójcze.\n"
+                       "• MBC/MIC ≥ 8 (różnica ≥3 rozcieńczeń) → bakteriostatyczne.\n"
+                       "• Gdy cenzura nie pozwala jednoznacznie rozstrzygnąć, po której stronie progu leży "
+                       "prawdziwa wartość → 'nieoznaczalny'.\n"
+                       "Dla dowolnego innego współczynnika rozcieńczenia MIC, MBC i sam iloraz są liczone i "
+                       "pokazywane jak zawsze, ale etykieta klasyfikacji to jawne 'niedostępna' z podanym "
+                       "powodem - program nigdy nie zgaduje kategorii, dla której nie ma metodologicznych "
+                       "podstaw. Wynik MBC niższy niż MIC dla tej samej pary jest zgłaszany jako BŁĄD "
+                       "SPÓJNOŚCI danych (nie jako 'nieoznaczalny') i wyłączony z klasyfikacji.")
+
+        self.add_entry("Powtórzenia i ostrzeżenie n_bio=1",
+                       "Tak jak w module dyfuzji, wynik z wielu powtórzeń TECHNICZNYCH tego samego "
+                       "powtórzenia biologicznego jest agregowany regułą 'wysokiej mediany' do JEDNEJ "
+                       "wartości na powtórzenie biologiczne, zanim cokolwiek zostanie porównane między "
+                       "grupami. Grupa oparta na tylko jednym powtórzeniu biologicznym (n_bio=1) nie jest "
+                       "odrzucana, ale każdy wynik z niej jest oznaczony jako orientacyjny - ostrzeżenie "
+                       "widoczne wprost na wykresach, w tabeli zbiorczej i w eksporcie, nie tylko w logu.")
+
+        # --- SEKCJA 7: PRZYGOTOWANIE DANYCH / FORMAT PLIKU ---
+        self.add_section("7. PRZYGOTOWANIE DANYCH / FORMAT PLIKU")
+
+        self.add_entry("Stary format nadal działa",
+                       "Jednoarkuszowe pliki z kolumnami Bakteria/Grupa/Srednica_mm (bez żadnych "
+                       "dodatkowych arkuszy) są nadal w pełni obsługiwane - wczytują się i analizują "
+                       "dokładnie tak jak zawsze, bez żadnych zmian ani nowych wymagań. Nie musisz niczego "
+                       "przerabiać w istniejących plikach, jeśli korzystasz tylko z analizy dyfuzji "
+                       "krążkowej.")
+
+        self.add_entry("Nowy, wspólny format wieloarkuszowy",
+                       "Żeby skorzystać z powtórzeń biologicznych/technicznych, typu próbki, albo modułu "
+                       "MIC/MBC, plik Excel może zawierać dodatkowe, ROZPOZNAWANE PO NAZWIE arkusze:\n"
+                       "• Dane_dyfuzja - dane testu dyfuzji krążkowej (odpowiednik starego, pojedynczego "
+                       "arkusza, ale z dodatkowymi kolumnami - patrz niżej).\n"
+                       "• MIC_wizualny - dane MIC z odczytem wizualnym ('wzrost'/'brak').\n"
+                       "• MIC_OD - dane MIC z odczytem gęstości optycznej (liczby OD).\n"
+                       "• MBC_posiew - dane MBC z posiewu (liczby CFU).\n"
+                       "• Kontrole - kontrola wzrostu/jałowości i inokulum dla każdego Przebiegu z MIC_OD/"
+                       "MBC_posiew (WYMAGANY, jeśli używasz któregokolwiek z tych dwóch arkuszy).\n"
+                       "ZASADA: wypełniasz TYLKO te arkusze, które Cię dotyczą. Sama dyfuzja? Wystarczy "
+                       "Dane_dyfuzja. Tylko MIC metodą wizualną? Wystarczą MIC_wizualny + Kontrole. Program "
+                       "sam wykrywa, które arkusze są obecne, i odpowiednio włącza/wyłącza dostępne analizy "
+                       "dla każdego szczepu z osobna (patrz panel 'Analiza MIC/MBC'). Arkusze Instrukcja i "
+                       "Ustawienia, jeśli obecne, są zawsze ignorowane - możesz w nich trzymać własne "
+                       "notatki.")
+
+        self.add_entry("Kluczowe kolumny (Dane_dyfuzja, nowy format)",
+                       "• Substancja / Stezenie / Jednostka - zamiast jednej kolumny 'Grupa' ze stężeniem "
+                       "wpisanym w nazwie, stężenie i jednostka są teraz OSOBNYMI kolumnami (Grupa jest "
+                       "budowana automatycznie z tych trzech, do wyświetlenia).\n"
+                       "• Typ - 'Badana' / 'Kontrola negatywna' / 'Kontrola pozytywna'. Gdy ta kolumna jest "
+                       "obecna, grupa referencyjna do porównań jest wykrywana z niej WPROST (nigdy z nazwy "
+                       "grupy) - jednoznacznie i bez zgadywania.\n"
+                       "• Rep_biologiczna / Rep_techniczna - numer powtórzenia biologicznego i "
+                       "technicznego. Bez tych kolumn (stary format) każda grupa jest traktowana jako JEDNO "
+                       "powtórzenie biologiczne (n_bio=1), a wszystkie jej wiersze - jako powtórzenia "
+                       "techniczne tego jednego powtórzenia; to bezpośrednio wpływa na to, co pokazują "
+                       "słupki błędu i czy osiągalna jest ANOVA (patrz sekcje 1 i 3 wyżej).\n"
+                       "Każda z tych kolumn jest wykrywana NIEZALEŻNIE - plik może mieć część z nich, a nie "
+                       "wszystkie (np. Typ bez Rep_biologiczna).")
+
+        self.add_entry("Kluczowe kolumny (MIC_wizualny / MIC_OD / MBC_posiew)",
+                       "• Przebieg - identyfikator łączący wiersz z jego kontrolami w arkuszu Kontrole. "
+                       "UWAGA: to identyfikator GLOBALNY dla całego pliku, nie osobny dla każdego arkusza - "
+                       "jeśli MIC i MBC pochodzą z tego samego fizycznego przebiegu, powinny mieć TEN SAM "
+                       "Przebieg (żeby dzielić te same kontrole); niepowiązane przebiegi muszą mieć różne "
+                       "wartości.\n"
+                       "• Stez_S1 / Wsp_rozc - stężenie w pierwszej studzience i współczynnik rozcieńczenia "
+                       "między kolejnymi studzienkami (np. Wsp_rozc=2 dla klasycznej serii dwukrotnej).\n"
+                       "• S1, S2, S3... - kolejne studzienki serii rozcieńczeń (wartość zależna od arkusza: "
+                       "'wzrost'/'brak' w MIC_wizualny, liczba OD w MIC_OD, liczba CFU w MBC_posiew).\n"
+                       "• Rep_biologiczna / Rep_techniczna - jak wyżej.")
 
         # Przycisk zamknięcia
         ctk.CTkButton(self.scroll, text="Zamknij Pomoc", fg_color="#333333", hover_color="#555555", command=self.destroy).pack(pady=30)
