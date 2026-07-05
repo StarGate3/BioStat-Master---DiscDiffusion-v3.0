@@ -673,6 +673,16 @@ significance test could not be computed (e.g. more than half its values were cen
 or fewer than two groups had usable data), this is stated explicitly instead of the
 comparison being silently omitted; groups resting on a single biological replicate
 (n_bio=1) are flagged as orientational.
+
+=== Tabela zbiorcza MIC/MBC ===
+Table M1. Summary of MIC, MBC, and MBC/MIC ratio for each tested substance against
+{bact}, one row per substance. MIC/MBC values are the median across biological
+replicates (n_bio per substance/endpoint given in the corresponding column); censored
+values are shown with their ≤/> prefix, never as a bare number. The bactericidal/
+bacteriostatic classification is reported only for two-fold dilution series and only
+when the MIC-MBC interval unambiguously falls on one side of the 4×/8× (d=2/d=3)
+boundary under censoring; otherwise "unavailable"/"undetermined" is stated explicitly,
+together with the reason, in the Uwagi/warnings column.
 """
         text_area.insert("0.0", captions)
 
