@@ -128,9 +128,17 @@ class HelpDialog(ctk.CTkToplevel):
                        f"Bardzo konserwatywna. Bardzo trudno uzyskać p < {ALPHA}. "
                        f"Stosuj tylko, gdy musisz mieć absolutną pewność i chcesz uniknąć fałszywych alarmów za wszelką cenę.")
         
-        self.add_entry("FDR (Benjamini-Hochberg)", 
+        self.add_entry("FDR (Benjamini-Hochberg)",
                        "Najmniej rygorystyczna. Dopuszcza pewien odsetek fałszywych odkryć. "
                        "Idealna do 'screeningu' (przesiewu) setek substancji, gdy nie chcesz przegapić niczego potencjalnie ciekawego.")
+
+        self.add_entry("Brak korekty (None)",
+                       "Surowe p-value z każdego porównania, bez żadnej poprawki na wielokrotne testowanie. "
+                       "RYZYKO: przy wielu porównaniach naraz mocno zawyża odsetek fałszywie 'istotnych' wyników "
+                       "(Błąd I rodzaju) - to dokładnie to, przed czym mają chronić korekty opisane wyżej. "
+                       "Sensowne najwyżej przy pojedynczym, z góry zaplanowanym porównaniu (np. tylko badana "
+                       "substancja vs kontrola, bez żadnych innych par) - nie do rutynowego używania przy "
+                       "porównaniu wielu grup.")
 
         # --- SEKCJA 3: INTERPRETACJA WYKRESÓW ---
         self.add_section("3. ANATOMIA WYKRESÓW")
