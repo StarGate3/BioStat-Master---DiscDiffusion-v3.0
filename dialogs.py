@@ -161,7 +161,7 @@ class HelpDialog(ctk.CTkToplevel):
                        f"żeby dało się ją czytelnie podpisać. Pełny widok 'wszystkie pary' włączysz "
                        f"przełącznikiem 'Wielkość efektu: wszystkie pary' w Opcjach Wykresu. Pełne wyniki dla "
                        f"wszystkich par (również nieistotnych) niezależnie od tego przełącznika znajdziesz w "
-                       f"raporcie Excel (zakładka 'Post-hoc Details').")
+                       f"raporcie Excel (zakładka 'Post-hoc (Details)').")
 
         self.add_entry("Mapa Ciepła (Heatmap)", 
                        "Wizualizacja macierzy. Kolory ułatwiają szybkie wyłapanie liderów.\n"
