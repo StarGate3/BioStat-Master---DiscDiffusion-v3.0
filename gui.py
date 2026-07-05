@@ -628,6 +628,23 @@ across biological replicates - not the arithmetic mean - together with its full 
 tested) and are plotted at their censoring bound, never treated as an exact numeric
 reading. The x-axis is a base-2 (two-fold dilution) logarithmic scale, labelled in the
 original concentration units.{mbc_row_sentence}{low_n_bio_sentence}
+
+=== Rycina M2: Pary MIC↔MBC ===
+Figure M2. MIC-to-MBC interval for each tested substance against {bact}, plotted on the
+same base-2 logarithmic concentration scale.
+For each substance, the median MIC (blue) and median MBC (dark red) are connected by a
+line spanning the dilution interval between them. A dashed open arrow indicates a
+right-censored MBC (no killing observed within the tested concentration range, so the
+true MBC may lie above the highest concentration tested). Colour encodes the
+classification: bactericidal (green) when the MBC/MIC ratio is ≤4 (≤2 two-fold dilution
+steps between MIC and MBC), bacteriostatic (orange) when the ratio is ≥8 (≥3 dilution
+steps), or undetermined (grey) when censoring makes it impossible to tell on which side
+of this boundary the true value falls - reference markers at 4× and 8× the MIC mark
+these two boundaries directly on the plot. Classification is reported only when the
+underlying dilution series is two-fold (Wsp_rozc=2); for any other dilution factor the
+MIC/MBC values and their ratio are still shown, but labelled "unavailable" instead of
+assigned a category. Pairs marked with a red "X" indicate an internal consistency error
+(MBC below MIC) and are excluded from classification rather than silently resolved.
 """
         text_area.insert("0.0", captions)
 
