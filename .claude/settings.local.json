@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(python -c \"import config; import utils; import logic; import plotting; import reports; import dialogs; import gui; print\\('all modules imported OK'\\)\")",
-      "Bash(python -c \"import utils, gui; df_cols = ['Bakterie', 'Grupa', 'Srednica_mm']; import pandas as pd; df = pd.DataFrame\\(columns=df_cols\\); print\\('find_bacteria_column:', repr\\(utils.find_bacteria_column\\(df\\)\\)\\); df2 = pd.DataFrame\\(columns=['X','Y','Z']\\); print\\('no-match case:', repr\\(utils.find_bacteria_column\\(df2\\)\\)\\)\")"
-    ]
-  }
-}
