@@ -1,0 +1,116 @@
+======================================================================
+AUDYT DYNAMICZNY - BioStat Master AKTUALNY (v3.0, GitHub)
+======================================================================
+
+[WCZYTANIE] Plik: C:\Users\Ariva\Desktop\dane_disk.xlsx
+Wiersze: 180, kolumny: ['Bakterie', 'Grupa', 'Srednica_mm']
+Walidacja struktury: OK
+Wykryta kolumna bakterii: 'Bakterie'
+Walidacja wartosci: odrzucono 0 / 180 wierszy
+Pozostalo do analizy: 180 wierszy
+Wykryte szczepy bakterii: ['E. coli', 'S. aureus']
+
+======================================================================
+ANALIZA SZCZEPU: E. coli
+======================================================================
+Liczba grup: 30, liczba obserwacji: 90
+Grupa referencyjna (auto, jak w GUI): Kontrola (+) Ampycylina
+
+Wykryte potencjalne outliery (Dixon Q, n=3..10): 22
+  - Grupa 'Kontrola (+) Ampycylina': wartosc 28.0 (pozostale: [np.float64(27.0), np.float64(27.0)])
+  - Grupa 'C1 (70%)': wartosc 9.0 (pozostale: [np.float64(8.0), np.float64(8.0)])
+  - Grupa 'C1 (100%)': wartosc 11.0 (pozostale: [np.float64(12.0), np.float64(12.0)])
+  - Grupa 'C2 (70%)': wartosc 10.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa 'C2 (100%)': wartosc 12.0 (pozostale: [np.float64(11.0), np.float64(11.0)])
+  - Grupa 'C3 (30%)': wartosc 21.0 (pozostale: [np.float64(22.0), np.float64(22.0)])
+  - Grupa 'C3 (70%)': wartosc 22.0 (pozostale: [np.float64(23.0), np.float64(23.0)])
+  - Grupa 'C4 (100%)': wartosc 11.0 (pozostale: [np.float64(10.0), np.float64(10.0)])
+  - Grupa '53-182 (50 mg/ml)': wartosc 16.0 (pozostale: [np.float64(15.0), np.float64(15.0)])
+  - Grupa '53-183 (50 mg/ml)': wartosc 19.0 (pozostale: [np.float64(20.0), np.float64(20.0)])
+  - Grupa '55-156 (50 mg/ml)': wartosc 13.0 (pozostale: [np.float64(12.0), np.float64(12.0)])
+  - Grupa '55-163 (5 mg/ml)': wartosc 10.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '55-163 (50 mg/ml)': wartosc 12.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '55-165 (5 mg/ml)': wartosc 7.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '55-165 (50 mg/ml)': wartosc 19.0 (pozostale: [np.float64(20.0), np.float64(20.0)])
+  - Grupa '55-173 (5 mg/ml)': wartosc 13.0 (pozostale: [np.float64(12.0), np.float64(12.0)])
+  - Grupa '55-173 (50 mg/ml)': wartosc 16.0 (pozostale: [np.float64(15.0), np.float64(15.0)])
+  - Grupa '55-174 (50 mg/ml)': wartosc 19.0 (pozostale: [np.float64(20.0), np.float64(20.0)])
+  - Grupa '56-007 (5 mg/ml)': wartosc 15.0 (pozostale: [np.float64(16.0), np.float64(16.0)])
+  - Grupa '56-007 (50 mg/ml)': wartosc 21.0 (pozostale: [np.float64(22.0), np.float64(22.0)])
+  - Grupa '56-011 (5 mg/ml)': wartosc 8.0 (pozostale: [np.float64(7.0), np.float64(7.0)])
+  - Grupa '56-011 (50 mg/ml)': wartosc 14.0 (pozostale: [np.float64(15.0), np.float64(15.0)])
+  >> DECYZJA AUDYTU: outliery NIE zostaly usuniete (wymagalyby decyzji czlowieka w GUI).
+
+Normalnosc (Shapiro-Wilk, alpha=0.05): 1/30 grup normalnych
+Wszystkie normalne -> uzyto testu parametrycznego: False
+Test glowny uzyty: Kruskal-Wallis
+Statystyka: 87.6949, p-value: 8.20539e-08
+Grup z Shapiro p=0 (n<3 lub std=0, test nie policzony realnie): 15
+
+Post-hoc (holm): 435 porownan, 4 istotnych statystycznie
+Porownania z niepoliczalnym Cohen's d (NaN/inf): 0
+
+Wykryte 'substancje' z parsowania stezen (dla trendu/MIC): 15
+Substancje z >=3 punktami stezen (kwalifikujace sie do regresji MIC): 2
+  - 55-156: MIC=0.3406 mg/ml | R2=0.873 | slope=1.158 | intercept=7.247
+  - C3: MIC=0.0601 % | R2=0.748 | slope=2.481 | intercept=12.977
+  Substancje pominiete bez MIC (< 3 unikalne stezenia lub blad regresji, BEZ komunikatu w oryginalnym UI): ['53-182', '53-183', '55-009', '55-163', '55-165', '55-173', '55-174', '55-183', '56-007', '56-011', 'C1', 'C2', 'C4']
+BLAD wykresu pvalue: underlying array is read-only
+PCA: Za mało danych do PCA (wymagane min. 3 szczepy).
+
+Generowanie PDF: SUKCES - Raport PDF został wygenerowany!
+  Zapisano: C:\Users\Ariva\Desktop\BioStat-Master_AKTUALNY\audyt_wyniki\E_coli\raport_E_coli.pdf (829.2 KB)
+
+======================================================================
+ANALIZA SZCZEPU: S. aureus
+======================================================================
+Liczba grup: 30, liczba obserwacji: 90
+Grupa referencyjna (auto, jak w GUI): Kontrola (+) Ampycylina
+
+Wykryte potencjalne outliery (Dixon Q, n=3..10): 19
+  - Grupa 'C2 (100%)': wartosc 8.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa 'C3 (30%)': wartosc 12.0 (pozostale: [np.float64(11.0), np.float64(11.0)])
+  - Grupa 'C3 (70%)': wartosc 16.0 (pozostale: [np.float64(14.0), np.float64(14.0)])
+  - Grupa 'C4 (100%)': wartosc 7.0 (pozostale: [np.float64(8.0), np.float64(8.0)])
+  - Grupa '53-084 (0,5 mg/ml)': wartosc 8.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '53-084 (5 mg/ml)': wartosc 11.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '53-084 (50 mg/ml)': wartosc 10.0 (pozostale: [np.float64(11.0), np.float64(11.0)])
+  - Grupa '55-009 (50 mg/ml)': wartosc 13.0 (pozostale: [np.float64(12.0), np.float64(12.0)])
+  - Grupa '55-156 (50 mg/ml)': wartosc 8.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '55-165 (5 mg/ml)': wartosc 8.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '55-165 (50 mg/ml)': wartosc 16.0 (pozostale: [np.float64(17.0), np.float64(17.0)])
+  - Grupa '55-173 (50 mg/ml)': wartosc 13.0 (pozostale: [np.float64(15.0), np.float64(15.0)])
+  - Grupa '55-174 (5 mg/ml)': wartosc 10.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '55-174 (50 mg/ml)': wartosc 18.0 (pozostale: [np.float64(17.0), np.float64(17.0)])
+  - Grupa '55-176 (50 mg/ml)': wartosc 12.0 (pozostale: [np.float64(13.0), np.float64(13.0)])
+  - Grupa '55-183 (5 mg/ml)': wartosc 6.0 (pozostale: [np.float64(7.0), np.float64(7.0)])
+  - Grupa '56-007 (5 mg/ml)': wartosc 10.0 (pozostale: [np.float64(9.0), np.float64(9.0)])
+  - Grupa '56-007 (50 mg/ml)': wartosc 16.0 (pozostale: [np.float64(17.0), np.float64(17.0)])
+  - Grupa '56-011 (50 mg/ml)': wartosc 8.0 (pozostale: [np.float64(7.0), np.float64(7.0)])
+  >> DECYZJA AUDYTU: outliery NIE zostaly usuniete (wymagalyby decyzji czlowieka w GUI).
+
+Normalnosc (Shapiro-Wilk, alpha=0.05): 5/30 grup normalnych
+Wszystkie normalne -> uzyto testu parametrycznego: False
+Test glowny uzyty: Kruskal-Wallis
+Statystyka: 84.7045, p-value: 2.3245e-07
+Grup z Shapiro p=0 (n<3 lub std=0, test nie policzony realnie): 9
+
+Post-hoc (holm): 435 porownan, 3 istotnych statystycznie
+Porownania z niepoliczalnym Cohen's d (NaN/inf): 0
+
+Wykryte 'substancje' z parsowania stezen (dla trendu/MIC): 19
+Substancje z >=3 punktami stezen (kwalifikujace sie do regresji MIC): 2
+  - C3: MIC=6.1686 % | R2=0.761 | slope=3.433 | intercept=-0.247
+  - 53-084: MIC=0.0011 mg/ml | R2=0.600 | slope=0.434 | intercept=8.968
+  Substancje pominiete bez MIC (< 3 unikalne stezenia lub blad regresji, BEZ komunikatu w oryginalnym UI): ['53-182', '53-183', '55-001', '55-009', '55-023', '55-156', '55-163', '55-165', '55-173', '55-174', '55-176', '55-183', '56-007', '56-011', 'C1', 'C2', 'C4']
+BLAD wykresu pvalue: underlying array is read-only
+PCA: Za mało danych do PCA (wymagane min. 3 szczepy).
+
+Generowanie PDF: SUKCES - Raport PDF został wygenerowany!
+  Zapisano: C:\Users\Ariva\Desktop\BioStat-Master_AKTUALNY\audyt_wyniki\S_aureus\raport_S_aureus.pdf (842.4 KB)
+
+======================================================================
+PODSUMOWANIE KONCOWE
+======================================================================
+E. coli: {'n_groups': 30, 'n_obs': 90, 'test_used': 'Kruskal-Wallis', 'p_value': np.float64(8.205387760068333e-08), 'n_sig_posthoc': 4, 'n_mic_estimated': 2, 'pdf_ok': True}
+S. aureus: {'n_groups': 30, 'n_obs': 90, 'test_used': 'Kruskal-Wallis', 'p_value': np.float64(2.3244983507029469e-07), 'n_sig_posthoc': 3, 'n_mic_estimated': 2, 'pdf_ok': True}

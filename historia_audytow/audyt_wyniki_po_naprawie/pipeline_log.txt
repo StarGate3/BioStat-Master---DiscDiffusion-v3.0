@@ -1,0 +1,91 @@
+======================================================================
+PIPELINE PO NAPRAWIE (gałąź naprawa-audyt) - BioStat Master
+======================================================================
+Wczytano 180 wierszy, odrzucono 0, pozostalo 180.
+Wykryte szczepy: ['E. coli', 'S. aureus']
+
+======================================================================
+ANALIZA SZCZEPU: E. coli
+======================================================================
+Liczba grup: 30, liczba obserwacji: 90
+>>> GRUPA REFERENCYJNA (kontrola do porownan): Kontrola (-) Woda <<<
+UWAGA: program porownuje srednice stref statystycznie i NIE wylicza kategorii S/I/R wg CLSI/EUCAST.
+
+Wykryte potencjalne outliery (Dixon Q, n=3..10): 22 (domyslnie NIC nie usunieto - opt-in)
+
+Normalnosc: 1/30 grup normalnych
+Test glowny uzyty: Kruskal-Wallis
+Statystyka: 87.6949, p-value: 8.20539e-08
+
+Post-hoc (holm): 435 porownan, 4 istotnych
+Grupy istotnie rozne od referencji 'Kontrola (-) Woda': ['55-009 (50 mg/ml)', 'C3 (100%)', 'Kontrola (+) Ampycylina']
+
+Substancje z proba MIC: 15, z wiarygodnym MIC (R2>=0.80): 1
+  - 53-182: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 53-183: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-009: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-156: MIC=0.3406 mg/ml | R2=0.873 [EKSTRAPOLACJA]
+  - 55-163: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-165: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-173: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-174: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-183: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 56-007: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 56-011: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - C1: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - C2: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - C3: BRAK MIC | slabe_dopasowanie | MIC odrzucone: słabe dopasowanie regresji (R²=0.75 < próg 0.8). Wartość 0.06007 % nie jest wiarygodna i nie jest raportowana.
+  - C4: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+Mapa P-value: OK - wygenerowana
+PCA: Za mało danych do PCA (wymagane min. 3 szczepy).
+
+Generowanie PDF: SUKCES - Raport PDF został wygenerowany!
+  Zapisano: C:\Users\Ariva\Desktop\BioStat-Master_AKTUALNY\audyt_wyniki_po_naprawie\E_coli\raport_E_coli.pdf (1443.9 KB)
+
+======================================================================
+ANALIZA SZCZEPU: S. aureus
+======================================================================
+Liczba grup: 30, liczba obserwacji: 90
+>>> GRUPA REFERENCYJNA (kontrola do porownan): Kontrola (-) Woda <<<
+UWAGA: program porownuje srednice stref statystycznie i NIE wylicza kategorii S/I/R wg CLSI/EUCAST.
+
+Wykryte potencjalne outliery (Dixon Q, n=3..10): 19 (domyslnie NIC nie usunieto - opt-in)
+
+Normalnosc: 5/30 grup normalnych
+Test glowny uzyty: Kruskal-Wallis
+Statystyka: 84.7045, p-value: 2.3245e-07
+
+Post-hoc (holm): 435 porownan, 3 istotnych
+Grupy istotnie rozne od referencji 'Kontrola (-) Woda': ['55-174 (50 mg/ml)', 'Kontrola (+) Ampycylina']
+
+Substancje z proba MIC: 19, z wiarygodnym MIC (R2>=0.80): 0
+  - 53-084: BRAK MIC | slabe_dopasowanie | MIC odrzucone: słabe dopasowanie regresji (R²=0.60 < próg 0.8). Wartość 0.001077 mg/ml nie jest wiarygodna i nie jest raportowana.
+  - 53-182: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 53-183: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-001: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-009: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-023: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-156: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-163: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-165: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-173: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-174: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 55-176: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - 55-183: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 56-007: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 2, wymagane min. 3).
+  - 56-011: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - C1: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - C2: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  - C3: BRAK MIC | slabe_dopasowanie | MIC odrzucone: słabe dopasowanie regresji (R²=0.76 < próg 0.8). Wartość 6.169 % nie jest wiarygodna i nie jest raportowana.
+  - C4: BRAK MIC | za_malo_stezen | Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+Mapa P-value: OK - wygenerowana
+PCA: Za mało danych do PCA (wymagane min. 3 szczepy).
+
+Generowanie PDF: SUKCES - Raport PDF został wygenerowany!
+  Zapisano: C:\Users\Ariva\Desktop\BioStat-Master_AKTUALNY\audyt_wyniki_po_naprawie\S_aureus\raport_S_aureus.pdf (1462.8 KB)
+
+======================================================================
+PODSUMOWANIE KONCOWE
+======================================================================
+E. coli: {'ref_group': 'Kontrola (-) Woda', 'test_used': 'Kruskal-Wallis', 'n_sig_posthoc': 4, 'n_mic_reliable': 1, 'pvalue_heatmap_ok': True, 'pdf_ok': True}
+S. aureus: {'ref_group': 'Kontrola (-) Woda', 'test_used': 'Kruskal-Wallis', 'n_sig_posthoc': 3, 'n_mic_reliable': 0, 'pvalue_heatmap_ok': True, 'pdf_ok': True}

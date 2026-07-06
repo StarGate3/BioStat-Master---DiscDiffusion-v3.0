@@ -1,0 +1,11 @@
+# Środowisko wirtualne
+.venv/
+venv/
+
+# Bytecode Pythona
+__pycache__/
+*.pyc
+
+# Artefakty PyInstaller (.spec jest WERSJONOWANY celowo - nie ignorujemy go)
+build/
+dist/

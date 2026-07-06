@@ -1,0 +1,31 @@
+======================================================================
+SCENARIUSZ: NOWY FORMAT (test_nowy_format.xlsx) - tylko grupy z n_bio=2
+Plik: C:\Users\Ariva\AppData\Local\Temp\claude\C--Users-Ariva-Desktop\d07f12b1-da22-452a-ab5f-7ddc1997b62a\scratchpad\test_nowy_format.xlsx
+======================================================================
+format_info: {'has_type': True, 'has_conc': True, 'has_reps': True}
+Ograniczono do grup: ['Kontrola negatywna (Woda)', 'Kontrola pozytywna (Ampicylina)', 'EkstraktX (50 mg/ml)']
+Grupy w analizie: ['EkstraktX (50 mg/ml)', 'Kontrola negatywna (Woda)', 'Kontrola pozytywna (Ampicylina)']
+Grupa referencyjna: Kontrola negatywna (Woda) (ambiguous=False)
+
+Tabela opisowa (n_bio/n_tech/mean/sd_bio):
+                          Grupa      mean  n_bio   sd_bio  n_tech
+           EkstraktX (50 mg/ml) 16.333333      2 1.414214       6
+      Kontrola negatywna (Woda)  0.000000      2 0.000000       6
+Kontrola pozytywna (Ampicylina) 27.000000      2 0.471405       6
+
+>>> low_n_bio_warning = False <<<
+
+Test głowny: Kruskal-Wallis
+Statystyka: 4.7059, p-value: 0.0950891
+
+Post-hoc: 0 porownan, 0 istotnych
+
+MIC: 3 substancji sprawdzonych
+  Ampicylina: BRAK - Za mało unikalnych stężeń do regresji (znaleziono 0, wymagane min. 3).
+  EkstraktX: BRAK - Za mało unikalnych stężeń do regresji (znaleziono 1, wymagane min. 3).
+  Woda: BRAK - Za mało unikalnych stężeń do regresji (znaleziono 0, wymagane min. 3).
+
+Wykres glowny zapisany: bar.png (baner n_bio=NIE)
+
+Generowanie PDF: SUKCES - Raport PDF został wygenerowany!
+  Zapisano: C:\Users\Ariva\Desktop\BioStat-Master_AKTUALNY\audyt_wyniki_nowy_format\nowy_n_bio2\raport.pdf (172.8 KB)
